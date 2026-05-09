@@ -1,0 +1,118 @@
+[
+    {
+        "attack_name": "Equifax Breach",
+        "year": 2017,
+        "sector": "Financial",
+        "vector": "Apache Struts RCE",
+        "cve": "CVE-2017-5638",
+        "impact": "Massive consumer data exposure affecting over 140 million individuals",
+        "techniques": [
+            "T1190",
+            "T1041"
+        ]
+    },
+
+    {
+        "attack_name": "WannaCry Ransomware",
+        "year": 2017,
+        "sector": "Healthcare",
+        "vector": "SMB Exploitation",
+        "cve": "CVE-2017-0144",
+        "impact": "Global ransomware propagation causing operational disruption",
+        "techniques": [
+            "T1210",
+            "T1486"
+        ]
+    },
+
+    {
+        "attack_name": "SolarWinds Supply Chain Attack",
+        "year": 2020,
+        "sector": "Government",
+        "vector": "Supply Chain Compromise",
+        "cve": "",
+        "impact": "Nation-state espionage through software supply chain compromise",
+        "techniques": [
+            "T1195",
+            "T1078"
+        ]
+    },
+
+    {
+        "attack_name": "Colonial Pipeline Attack",
+        "year": 2021,
+        "sector": "Energy",
+        "vector": "Credential Access",
+        "cve": "",
+        "impact": "Critical infrastructure operational shutdown",
+        "techniques": [
+            "T1078",
+            "T1486"
+        ]
+    },
+
+    {
+        "attack_name": "Log4Shell Exploitation Campaigns",
+        "year": 2021,
+        "sector": "Technology",
+        "vector": "Remote Code Execution",
+        "cve": "CVE-2021-44228",
+        "impact": "Mass-scale exploitation across internet-facing systems",
+        "techniques": [
+            "T1190",
+            "T1059"
+        ]
+    },
+
+    {
+        "attack_name": "MOVEit Transfer Exploitation",
+        "year": 2023,
+        "sector": "Enterprise",
+        "vector": "SQL Injection",
+        "cve": "CVE-2023-34362",
+        "impact": "Large-scale enterprise data theft campaigns",
+        "techniques": [
+            "T1190",
+            "T1041"
+        ]
+    },
+
+    {
+        "attack_name": "Microsoft Exchange Hafnium Attacks",
+        "year": 2021,
+        "sector": "Enterprise",
+        "vector": "Exchange Exploitation",
+        "cve": "CVE-2021-26855",
+        "impact": "Mass exploitation of enterprise email infrastructure",
+        "techniques": [
+            "T1190",
+            "T1505"
+        ]
+    },
+
+    {
+        "attack_name": "Facebook Access Token Breach",
+        "year": 2018,
+        "sector": "Social Media",
+        "vector": "Access Token Abuse",
+        "cve": "",
+        "impact": "Exposure of access tokens affecting millions of users",
+        "techniques": [
+            "T1078",
+            "T1539"
+        ]
+    },
+
+    {
+        "attack_name": "T-Mobile API Breach",
+        "year": 2023,
+        "sector": "Telecommunications",
+        "vector": "Unauthorized API Access",
+        "cve": "",
+        "impact": "Exposure of customer records through API abuse",
+        "techniques": [
+            "T1190",
+            "T1041"
+        ]
+    }
+]

@@ -3,44 +3,120 @@ Threat severity scoring engine.
 """
 
 
-def calculate_threat_score(results):
+def calculate_threat_score(
+
+    results,
+
+    correlations=None
+):
 
     """
     Calculates overall threat level.
     """
 
+    if correlations is None:
+        correlations = []
+
     score = 0
+
+    # ========================================================
+    # SIGNAL SCORING
+    # ========================================================
 
     for item in results:
 
-        if item["type"] != "keyword":
-            continue
+        # ----------------------------------------------------
+        # Keyword Intelligence
+        # ----------------------------------------------------
 
-        subtype = item["subtype"]
+        if item["type"] == "keyword":
 
-        if subtype == "access":
-            score += 2
+            subtype = item["subtype"]
 
-        elif subtype == "exploit":
-            score += 3
+            if subtype == "access":
+                score += 2
 
-        elif subtype == "movement":
-            score += 4
+            elif subtype == "exploit":
+                score += 4
 
-        elif subtype == "leak":
+            elif subtype == "movement":
+                score += 5
+
+            elif subtype == "leak":
+                score += 6
+
+            elif subtype == "sale":
+                score += 4
+
+        # ----------------------------------------------------
+        # CVE Detection
+        # ----------------------------------------------------
+
+        elif item["type"] == "cve":
+
             score += 5
 
-        elif subtype == "sale":
-            score += 3
+        # ----------------------------------------------------
+        # IP Indicators
+        # ----------------------------------------------------
 
-    # Severity mapping
-    if score >= 12:
+        elif item["type"] == "ipv4":
+
+            score += 2
+
+    # ========================================================
+    # CORRELATION SCORING
+    # ========================================================
+
+    for correlation in correlations:
+
+        # ----------------------------------------------------
+        # KEV Correlation
+        # ----------------------------------------------------
+
+        if correlation["type"] == "kev_correlation":
+
+            score += 10
+
+        # ----------------------------------------------------
+        # Historical Attack Correlation
+        # ----------------------------------------------------
+
+        elif correlation["type"] == "historical_attack":
+
+            score += 7
+
+        # ----------------------------------------------------
+        # Critical CVE Correlation
+        # ----------------------------------------------------
+
+        elif correlation["type"] == "cve_correlation":
+
+            severity = correlation.get(
+                "severity",
+                "UNKNOWN"
+            )
+
+            if severity == "CRITICAL":
+                score += 10
+
+            elif severity == "HIGH":
+                score += 7
+
+            elif severity == "MEDIUM":
+                score += 4
+
+    # ========================================================
+    # FINAL SEVERITY MAPPING
+    # ========================================================
+
+    if score >= 35:
         return "CRITICAL"
 
-    elif score >= 8:
+    elif score >= 22:
         return "HIGH"
 
-    elif score >= 4:
+    elif score >= 10:
         return "MEDIUM"
 
     return "LOW"

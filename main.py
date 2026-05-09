@@ -1,18 +1,496 @@
+# """
+# Main CLI entry point
+# for the C.D.K.C.I.A.E
+# Threat Intelligence Utility.
+# """
+
+# # ============================================================
+# # CORE PIPELINE
+# # ============================================================
+
+# from engine.pipeline import run_pipeline
+
+# # ============================================================
+# # DATASET LOADERS
+# # ============================================================
+
+# from engine.datasets.dataset_loader import (
+
+#     load_cve_dataset,
+
+#     load_mitre_dataset,
+
+#     load_kev_dataset,
+
+#     load_historical_attacks
+# )
+
+# # ============================================================
+# # INTELLIGENCE MODULES
+# # ============================================================
+
+# from engine.intelligence.killchain_mapper import (
+#     map_kill_chain
+# )
+
+# from engine.intelligence.threat_scorer import (
+#     calculate_threat_score
+# )
+
+# from engine.intelligence.narrative_generator import (
+#     generate_narrative
+# )
+
+# # ============================================================
+# # INTELLIGENCE SUMMARY MODULE
+# # ============================================================
+
+# from engine.intelligence.intelligence_summary import (
+
+#     summarize_findings,
+
+#     group_nlp_categories,
+
+#     compact_mitre_output,
+
+#     build_executive_summary
+# )
+
+# # ============================================================
+# # PDF REPORT MODULE
+# # ============================================================
+
+# from engine.reports.report_generator import (
+#     generate_pdf_report
+# )
+
+# # ============================================================
+# # GRAPH MODULES
+# # ============================================================
+
+# from engine.graph.graph_visualizer import (
+#     visualize_graph
+# )
+
+
+# # ============================================================
+# # MAIN
+# # ============================================================
+
+# def main():
+
+#     # ========================================================
+#     # HEADER
+#     # ========================================================
+
+#     print("=" * 60)
+
+#     print("C.D.K.C.I.A.E Threat Intelligence Utility")
+
+#     print("=" * 60)
+
+#     # ========================================================
+#     # DATASET STATUS
+#     # ========================================================
+
+#     print("\n[DATASET STATUS]\n")
+
+#     cve_data = load_cve_dataset()
+
+#     mitre_data = load_mitre_dataset()
+
+#     kev_data = load_kev_dataset()
+
+#     historical_data = load_historical_attacks()
+
+#     print(
+#         f"✔ CVE Intelligence Loaded "
+#         f"({len(cve_data)} records)"
+#     )
+
+#     print(
+#         f"✔ MITRE ATT&CK Loaded "
+#         f"({len(mitre_data)} techniques)"
+#     )
+
+#     print(
+#         f"✔ KEV Database Loaded "
+#         f"({len(kev_data)} entries)"
+#     )
+
+#     print(
+#         f"✔ Historical Threat Dataset Loaded "
+#         f"({len(historical_data)} attacks)"
+#     )
+
+#     # ========================================================
+#     # RUN PIPELINE
+#     # ========================================================
+
+#     pipeline_output = run_pipeline()
+
+#     # ========================================================
+#     # EXTRACT OUTPUTS
+#     # ========================================================
+
+#     results = pipeline_output["signals"]
+
+#     correlations = pipeline_output["correlations"]
+
+#     important_terms = pipeline_output[
+#         "important_terms"
+#     ]
+
+#     mitre_dataset = pipeline_output[
+#         "mitre_dataset"
+#     ]
+
+#     threat_graph = pipeline_output[
+#         "threat_graph"
+#     ]
+
+#     # ========================================================
+#     # BUILD KILL CHAIN
+#     # ========================================================
+
+#     kill_chain = map_kill_chain(
+
+#         results,
+
+#         correlations
+#     )
+
+#     # ========================================================
+#     # ORDERED KILL CHAIN
+#     # ========================================================
+
+#     ordered_chain = [
+
+#         "Initial Access",
+
+#         "Execution",
+
+#         "Privilege Escalation",
+
+#         "Exfiltration",
+
+#         "Monetization"
+#     ]
+
+#     visible_chain = [
+
+#         stage for stage in ordered_chain
+
+#         if stage in kill_chain
+#     ]
+
+#     # ========================================================
+#     # THREAT SCORE
+#     # ========================================================
+
+#     threat_level = calculate_threat_score(
+
+#         results,
+
+#         correlations
+#     )
+
+#     # ========================================================
+#     # BUILD SUMMARIES
+#     # ========================================================
+
+#     executive_summary = build_executive_summary(
+
+#         threat_level,
+
+#         visible_chain
+#     )
+
+#     findings = summarize_findings(
+#         results
+#     )
+
+#     nlp_groups = group_nlp_categories(
+#         correlations
+#     )
+
+#     mitre_summary = compact_mitre_output(
+#         mitre_dataset
+#     )
+
+#     # ========================================================
+#     # PIPELINE STATUS
+#     # ========================================================
+
+#     print("\n[PIPELINE STATUS]\n")
+
+#     print("✔ Threat Crawling Complete")
+
+#     print("✔ Signal Extraction Complete")
+
+#     print("✔ NLP Analysis Complete")
+
+#     print("✔ Correlation Analysis Complete")
+
+#     print("✔ Graph Intelligence Built")
+
+#     print("✔ Reporting Engine Ready")
+
+#     # ========================================================
+#     # NARRATIVE
+#     # ========================================================
+
+#     narrative = generate_narrative(
+
+#         results,
+
+#         visible_chain,
+
+#         threat_level,
+
+#         correlations
+#     )
+
+#     # ========================================================
+#     # THREAT ASSESSMENT SUMMARY
+#     # ========================================================
+
+#     print("\n")
+
+#     print("=" * 60)
+
+#     print("THREAT ASSESSMENT SUMMARY")
+
+#     print("=" * 60)
+
+#     print(f"\nThreat Level: {threat_level}")
+
+#     print("\nKill Chain Progression:")
+
+#     print(
+
+#         " → ".join(visible_chain)
+#     )
+
+#     print("\nExecutive Assessment:\n")
+
+#     for line in executive_summary:
+
+#         print(f"• {line}")
+
+#     # ========================================================
+#     # KEY FINDINGS
+#     # ========================================================
+
+#     print("\n")
+
+#     print("=" * 60)
+
+#     print("KEY INTELLIGENCE FINDINGS")
+
+#     print("=" * 60)
+
+#     for finding in findings:
+
+#         print(f"\n✔ {finding}")
+
+#     # ========================================================
+#     # NLP SUMMARY
+#     # ========================================================
+
+#     print("\n")
+
+#     print("=" * 60)
+
+#     print("NLP THREAT INTELLIGENCE")
+
+#     print("=" * 60)
+
+#     print("\nTop Threat Terms:\n")
+
+#     for term, score in important_terms[:10]:
+
+#         print(
+
+#             f"- {term:<15}"
+
+#             f"TF-IDF Score: "
+#             f"{round(score, 4)}"
+#         )
+
+#     print("\nThreat Category Distribution:\n")
+
+#     for category, entries in nlp_groups.items():
+
+#         print(
+
+#             f"{category.upper():<15}"
+#             f": {len(entries)} indicators"
+#         )
+
+#     # ========================================================
+#     # MITRE SUMMARY
+#     # ========================================================
+
+#     print("\n")
+
+#     print("=" * 60)
+
+#     print("MITRE ATT&CK SUMMARY")
+
+#     print("=" * 60)
+
+#     for technique in mitre_summary:
+
+#         print(
+
+#             f"\n[{technique['id']}] "
+#             f"{technique['name']}"
+#         )
+
+#     # ========================================================
+#     # GRAPH VISUALIZATION
+#     # ========================================================
+
+#     print("\n")
+
+#     print("=" * 60)
+
+#     print("GRAPH VISUALIZATION")
+
+#     print("=" * 60)
+
+#     print(
+
+#         "\nLaunching structured "
+#         "kill-chain threat graph..."
+#     )
+
+#     visualize_graph(
+#         threat_graph
+#     )
+
+#     # ========================================================
+#     # PDF REPORT GENERATION
+#     # ========================================================
+
+#     print("\n")
+
+#     print("=" * 60)
+
+#     print("PDF REPORT GENERATION")
+
+#     print("=" * 60)
+
+#     print(
+#         "\nGenerating intelligence PDF report..."
+#     )
+
+#     report_path = generate_pdf_report(
+
+#         {
+#             "threat_level": threat_level,
+
+#             "kill_chain_stages": visible_chain,
+
+#             "signals": results,
+
+#             "important_terms": important_terms,
+
+#             "mitre_matches": mitre_summary,
+
+#             "executive_summary": narrative
+#         }
+#     )
+
+#     print(
+#         f"\n✔ PDF Report Generated:"
+#     )
+
+#     print(
+#         f"  {report_path}"
+#     )
+
+#     # ========================================================
+#     # FINAL SUMMARY
+#     # ========================================================
+
+#     print("\n")
+
+#     print("=" * 60)
+
+#     print("INTELLIGENCE ANALYSIS COMPLETE")
+
+#     print("=" * 60)
+
+#     print(
+#         "\n✔ Threat intelligence processing complete."
+#     )
+
+#     print(
+#         "✔ NLP intelligence correlation complete."
+#     )
+
+#     print(
+#         "✔ Graph relationship analysis complete."
+#     )
+
+#     print(
+#         "✔ Threat intelligence report exported."
+#     )
+
+#     print(
+#         "\nGenerated Output Files:"
+#     )
+
+#     print(
+#         "- outputs/threat_graph.png"
+#     )
+
+#     print(
+#         "- outputs/threat_intelligence_report.pdf\n"
+#     )
+
+
+# # ============================================================
+# # PROGRAM ENTRY
+# # ============================================================
+
+# if __name__ == "__main__":
+
+#     main()
+
+
 """
 Main CLI entry point
 for the C.D.K.C.I.A.E
 Threat Intelligence Utility.
 """
 
-# ------------------------------------------------------------
-# Core Pipeline
-# ------------------------------------------------------------
+# ============================================================
+# CORE PIPELINE
+# ============================================================
 
 from engine.pipeline import run_pipeline
 
-# ------------------------------------------------------------
-# Intelligence Modules
-# ------------------------------------------------------------
+# ============================================================
+# DATASET LOADERS
+# ============================================================
+
+from engine.datasets.dataset_loader import (
+
+    load_cve_dataset,
+
+    load_mitre_dataset,
+
+    load_kev_dataset,
+
+    load_historical_attacks
+)
+
+# ============================================================
+# INTELLIGENCE MODULES
+# ============================================================
 
 from engine.intelligence.killchain_mapper import (
     map_kill_chain
@@ -26,14 +504,41 @@ from engine.intelligence.narrative_generator import (
     generate_narrative
 )
 
-# ------------------------------------------------------------
-# Reporting Module
-# ------------------------------------------------------------
+# ============================================================
+# INTELLIGENCE SUMMARY MODULE
+# ============================================================
 
-from engine.reports.report_generator import (
-    generate_report
+from engine.intelligence.intelligence_summary import (
+
+    summarize_findings,
+
+    group_nlp_categories,
+
+    compact_mitre_output,
+
+    build_executive_summary
 )
 
+# ============================================================
+# PDF REPORT MODULE
+# ============================================================
+
+from engine.reports.report_generator import (
+    generate_pdf_report
+)
+
+# ============================================================
+# GRAPH MODULES
+# ============================================================
+
+from engine.graph.graph_visualizer import (
+    visualize_graph
+)
+
+
+# ============================================================
+# MAIN
+# ============================================================
 
 def main():
 
@@ -48,50 +553,454 @@ def main():
     print("=" * 60)
 
     # ========================================================
-    # STEP 1 — Run Acquisition + Extraction Pipeline
+    # DATASET STATUS
     # ========================================================
 
-    results = run_pipeline()
+    print("\n[DATASET STATUS]\n")
 
-    # ========================================================
-    # STEP 2 — Build Kill Chain
-    # ========================================================
+    cve_data = load_cve_dataset()
 
-    kill_chain = map_kill_chain(results)
+    mitre_data = load_mitre_dataset()
 
-    # ========================================================
-    # STEP 3 — Calculate Threat Severity
-    # ========================================================
+    kev_data = load_kev_dataset()
 
-    threat_level = calculate_threat_score(results)
+    historical_data = load_historical_attacks()
 
-    # ========================================================
-    # STEP 4 — Generate Intelligence Report
-    # ========================================================
+    print(
+        f"✔ CVE Intelligence Loaded "
+        f"({len(cve_data)} records)"
+    )
 
-    generate_report(
-        results,
-        kill_chain,
-        threat_level
+    print(
+        f"✔ MITRE ATT&CK Loaded "
+        f"({len(mitre_data)} techniques)"
+    )
+
+    print(
+        f"✔ KEV Database Loaded "
+        f"({len(kev_data)} entries)"
+    )
+
+    print(
+        f"✔ Historical Threat Dataset Loaded "
+        f"({len(historical_data)} attacks)"
     )
 
     # ========================================================
-    # STEP 5 — Generate Threat Narrative
+    # RUN PIPELINE
+    # ========================================================
+
+    pipeline_output = run_pipeline()
+
+    # ========================================================
+    # EXTRACT OUTPUTS
+    # ========================================================
+
+    results = pipeline_output["signals"]
+
+    correlations = pipeline_output["correlations"]
+
+    important_terms = pipeline_output[
+        "important_terms"
+    ]
+
+    mitre_dataset = pipeline_output[
+        "mitre_dataset"
+    ]
+
+    threat_graph = pipeline_output[
+        "threat_graph"
+    ]
+
+    enriched_iocs = pipeline_output[
+        "enriched_iocs"
+    ]
+
+    # ========================================================
+    # BUILD KILL CHAIN
+    # ========================================================
+
+    kill_chain = map_kill_chain(
+
+        results,
+
+        correlations
+    )
+
+    # ========================================================
+    # ORDERED KILL CHAIN
+    # ========================================================
+
+    ordered_chain = [
+
+        "Initial Access",
+
+        "Execution",
+
+        "Privilege Escalation",
+
+        "Exfiltration",
+
+        "Monetization"
+    ]
+
+    visible_chain = [
+
+        stage for stage in ordered_chain
+
+        if stage in kill_chain
+    ]
+
+    # ========================================================
+    # THREAT SCORE
+    # ========================================================
+
+    threat_level = calculate_threat_score(
+
+        results,
+
+        correlations
+    )
+
+    # ========================================================
+    # BUILD SUMMARIES
+    # ========================================================
+
+    executive_summary = build_executive_summary(
+
+        threat_level,
+
+        visible_chain
+    )
+
+    findings = summarize_findings(
+        results
+    )
+
+    nlp_groups = group_nlp_categories(
+        correlations
+    )
+
+    mitre_summary = compact_mitre_output(
+        mitre_dataset
+    )
+
+    # ========================================================
+    # PIPELINE STATUS
+    # ========================================================
+
+    print("\n[PIPELINE STATUS]\n")
+
+    print("✔ Threat Crawling Complete")
+
+    print("✔ Signal Extraction Complete")
+
+    print("✔ NLP Analysis Complete")
+
+    print("✔ Correlation Analysis Complete")
+
+    print("✔ IOC Enrichment Complete")
+
+    print("✔ Graph Intelligence Built")
+
+    print("✔ Reporting Engine Ready")
+
+    # ========================================================
+    # NARRATIVE
     # ========================================================
 
     narrative = generate_narrative(
+
         results,
-        kill_chain,
-        threat_level
+
+        visible_chain,
+
+        threat_level,
+
+        correlations
     )
 
-    print(narrative)
-
     # ========================================================
-    # END
+    # THREAT ASSESSMENT SUMMARY
     # ========================================================
 
-    print("\n[+] Intelligence Analysis Complete.\n")
+    print("\n")
+
+    print("=" * 60)
+
+    print("THREAT ASSESSMENT SUMMARY")
+
+    print("=" * 60)
+
+    print(f"\nThreat Level: {threat_level}")
+
+    print("\nKill Chain Progression:")
+
+    print(
+
+        " → ".join(visible_chain)
+    )
+
+    print("\nExecutive Assessment:\n")
+
+    for line in executive_summary:
+
+        print(f"• {line}")
+
+    # ========================================================
+    # KEY FINDINGS
+    # ========================================================
+
+    print("\n")
+
+    print("=" * 60)
+
+    print("KEY INTELLIGENCE FINDINGS")
+
+    print("=" * 60)
+
+    for finding in findings:
+
+        print(f"\n✔ {finding}")
+
+    # ========================================================
+    # IOC ENRICHMENT SUMMARY
+    # ========================================================
+
+    print("\n")
+
+    print("=" * 60)
+
+    print("IOC ENRICHMENT SUMMARY")
+
+    print("=" * 60)
+
+    if enriched_iocs:
+
+        for item in enriched_iocs:
+
+            print("\n----------------------------------------")
+
+            print(
+                f"IOC      : {item.get('value', 'UNKNOWN')}"
+            )
+
+            print(
+                f"TYPE     : {item.get('ioc_type', 'UNKNOWN').upper()}"
+            )
+
+            print(
+                f"RISK     : {item.get('risk', 'UNKNOWN').upper()}"
+            )
+
+            # =================================================
+            # EMAIL CONTEXT
+            # =================================================
+
+            if item.get("domain"):
+
+                print(
+                    f"DOMAIN   : {item['domain']}"
+                )
+
+            if item.get("role_account"):
+
+                print(
+                    "ROLE ACC : TRUE"
+                )
+
+            # =================================================
+            # IP CONTEXT
+            # =================================================
+
+            if item.get("classification"):
+
+                print(
+                    f"CLASS    : {item['classification']}"
+                )
+
+            # =================================================
+            # CVE CONTEXT
+            # =================================================
+
+            if item.get("severity"):
+
+                print(
+                    f"SEVERITY : {item['severity']}"
+                )
+
+            if item.get("kev"):
+
+                print(
+                    "KEV      : TRUE"
+                )
+
+    else:
+
+        print("\nNo enrichment records available.")
+
+    # ========================================================
+    # NLP SUMMARY
+    # ========================================================
+
+    print("\n")
+
+    print("=" * 60)
+
+    print("NLP THREAT INTELLIGENCE")
+
+    print("=" * 60)
+
+    print("\nTop Threat Terms:\n")
+
+    for term, score in important_terms[:10]:
+
+        print(
+
+            f"- {term:<15}"
+
+            f"TF-IDF Score: "
+            f"{round(score, 4)}"
+        )
+
+    print("\nThreat Category Distribution:\n")
+
+    for category, entries in nlp_groups.items():
+
+        print(
+
+            f"{category.upper():<15}"
+            f": {len(entries)} indicators"
+        )
+
+    # ========================================================
+    # MITRE SUMMARY
+    # ========================================================
+
+    print("\n")
+
+    print("=" * 60)
+
+    print("MITRE ATT&CK SUMMARY")
+
+    print("=" * 60)
+
+    for technique in mitre_summary:
+
+        print(
+
+            f"\n[{technique['id']}] "
+            f"{technique['name']}"
+        )
+
+    # ========================================================
+    # GRAPH VISUALIZATION
+    # ========================================================
+
+    print("\n")
+
+    print("=" * 60)
+
+    print("GRAPH VISUALIZATION")
+
+    print("=" * 60)
+
+    print(
+
+        "\nLaunching structured "
+        "kill-chain threat graph..."
+    )
+
+    visualize_graph(
+        threat_graph
+    )
+
+    # ========================================================
+    # PDF REPORT GENERATION
+    # ========================================================
+
+    print("\n")
+
+    print("=" * 60)
+
+    print("PDF REPORT GENERATION")
+
+    print("=" * 60)
+
+    print(
+        "\nGenerating intelligence PDF report..."
+    )
+
+    report_path = generate_pdf_report(
+
+        {
+            "threat_level": threat_level,
+
+            "kill_chain_stages": visible_chain,
+
+            "signals": results,
+
+            "important_terms": important_terms,
+
+            "mitre_matches": mitre_summary,
+
+            "executive_summary": narrative,
+
+            "enriched_iocs": enriched_iocs
+        }
+    )
+
+    print(
+        f"\n✔ PDF Report Generated:"
+    )
+
+    print(
+        f"  {report_path}"
+    )
+
+    # ========================================================
+    # FINAL SUMMARY
+    # ========================================================
+
+    print("\n")
+
+    print("=" * 60)
+
+    print("INTELLIGENCE ANALYSIS COMPLETE")
+
+    print("=" * 60)
+
+    print(
+        "\n✔ Threat intelligence processing complete."
+    )
+
+    print(
+        "✔ NLP intelligence correlation complete."
+    )
+
+    print(
+        "✔ IOC enrichment complete."
+    )
+
+    print(
+        "✔ Graph relationship analysis complete."
+    )
+
+    print(
+        "✔ Threat intelligence report exported."
+    )
+
+    print(
+        "\nGenerated Output Files:"
+    )
+
+    print(
+        "- outputs/threat_graph.png"
+    )
+
+    print(
+        "- outputs/threat_intelligence_report.pdf\n"
+    )
 
 
 # ============================================================
