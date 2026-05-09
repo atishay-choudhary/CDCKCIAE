@@ -1,0 +1,30 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+venv/
+.env/
+.venv/
+
+# IDE files
+.vscode/
+.idea/
+
+# Generated outputs
+outputs/
+
+# Large/raw datasets
+datasets/cisa/raw/
+datasets/cves/raw/
+datasets/mitre/raw/
+
+# Secrets/configs
+.env
+.env.*
+*.key
+*.pem
+
+# OS junk
+.DS_Store
+Thumbs.db
