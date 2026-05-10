@@ -149,6 +149,34 @@
 #         "threat_graph"
 #     ]
 
+#     enriched_iocs = pipeline_output[
+#         "enriched_iocs"
+#     ]
+
+#     impact_analysis = pipeline_output[
+#         "impact_analysis"
+#     ]
+
+#     propagation_results = pipeline_output[
+#         "propagation_results"
+#     ]
+
+#     propagation_summary = pipeline_output[
+#         "propagation_summary"
+#     ]
+
+#     consequence_results = pipeline_output[
+#         "consequence_results"
+#     ]
+
+#     consequence_summary = pipeline_output[
+#         "consequence_summary"
+#     ]
+
+#     business_risk = pipeline_output[
+#         "business_risk"
+#     ]
+
 #     # ========================================================
 #     # BUILD KILL CHAIN
 #     # ========================================================
@@ -232,6 +260,14 @@
 
 #     print("✔ Correlation Analysis Complete")
 
+#     print("✔ IOC Enrichment Complete")
+
+#     print("✔ Cross-Domain Impact Analysis Complete")
+
+#     print("✔ Propagation Simulation Complete")
+
+#     print("✔ Consequence Cascade Analysis Complete")
+
 #     print("✔ Graph Intelligence Built")
 
 #     print("✔ Reporting Engine Ready")
@@ -293,6 +329,288 @@
 #     for finding in findings:
 
 #         print(f"\n✔ {finding}")
+
+#     # ========================================================
+#     # IOC ENRICHMENT SUMMARY
+#     # ========================================================
+
+#     print("\n")
+
+#     print("=" * 60)
+
+#     print("IOC ENRICHMENT SUMMARY")
+
+#     print("=" * 60)
+
+#     if enriched_iocs:
+
+#         for item in enriched_iocs:
+
+#             print("\n----------------------------------------")
+
+#             print(
+#                 f"IOC      : {item.get('value', 'UNKNOWN')}"
+#             )
+
+#             print(
+#                 f"TYPE     : {item.get('ioc_type', 'UNKNOWN').upper()}"
+#             )
+
+#             print(
+#                 f"RISK     : {item.get('risk', 'UNKNOWN').upper()}"
+#             )
+
+#             if item.get("domain"):
+
+#                 print(
+#                     f"DOMAIN   : {item['domain']}"
+#                 )
+
+#             if item.get("role_account"):
+
+#                 print(
+#                     "ROLE ACC : TRUE"
+#                 )
+
+#             if item.get("classification"):
+
+#                 print(
+#                     f"CLASS    : {item['classification']}"
+#                 )
+
+#             if item.get("severity"):
+
+#                 print(
+#                     f"SEVERITY : {item['severity']}"
+#                 )
+
+#             if item.get("kev"):
+
+#                 print(
+#                     "KEV      : TRUE"
+#                 )
+
+#     else:
+
+#         print("\nNo enrichment records available.")
+
+#     # ========================================================
+#     # CROSS-DOMAIN IMPACT ANALYSIS
+#     # ========================================================
+
+#     print("\n")
+
+#     print("=" * 60)
+
+#     print("CROSS-DOMAIN IMPACT ANALYSIS")
+
+#     print("=" * 60)
+
+#     print(
+#         f"\nImpact Criticality: "
+#         f"{impact_analysis['criticality']}"
+#     )
+
+#     print(
+#         f"Impact Score: "
+#         f"{impact_analysis['impact_score']}"
+#     )
+
+#     print("\nBusiness Impact:\n")
+
+#     if impact_analysis["business_impact"]:
+
+#         for item in impact_analysis[
+#             "business_impact"
+#         ]:
+
+#             print(f"- {item}")
+
+#     else:
+
+#         print("- No business impact identified.")
+
+#     print("\nOperational Impact:\n")
+
+#     if impact_analysis["operational_impact"]:
+
+#         for item in impact_analysis[
+#             "operational_impact"
+#         ]:
+
+#             print(f"- {item}")
+
+#     else:
+
+#         print("- No operational impact identified.")
+
+#     print("\nCompliance Exposure:\n")
+
+#     if impact_analysis["compliance_impact"]:
+
+#         for item in impact_analysis[
+#             "compliance_impact"
+#         ]:
+
+#             print(f"- {item}")
+
+#     else:
+
+#         print("- No compliance exposure identified.")
+
+#     print("\nAffected Assets:\n")
+
+#     if impact_analysis["affected_assets"]:
+
+#         for item in impact_analysis[
+#             "affected_assets"
+#         ]:
+
+#             print(f"- {item}")
+
+#     else:
+
+#         print("- No affected assets identified.")
+
+#     print("\nPotential Propagation Paths:\n")
+
+#     if impact_analysis["propagation_paths"]:
+
+#         for item in impact_analysis[
+#             "propagation_paths"
+#         ]:
+
+#             print(f"- {item}")
+
+#     else:
+
+#         print("- No propagation paths identified.")
+
+#     # ========================================================
+#     # PROPAGATION ANALYSIS
+#     # ========================================================
+
+#     print("\n")
+
+#     print("=" * 60)
+
+#     print("PROPAGATION ANALYSIS")
+
+#     print("=" * 60)
+
+#     if propagation_summary:
+
+#         for item in propagation_summary[:5]:
+
+#             print("\n----------------------------------------")
+
+#             print(
+#                 f"Path        : {item['path']}"
+#             )
+
+#             print(
+#                 f"Probability : {item['probability']}"
+#             )
+
+#             print(
+#                 f"Severity    : {item['severity']}"
+#             )
+
+#             print(
+#                 f"Depth       : {item['depth']}"
+#             )
+
+#     else:
+
+#         print("\nNo propagation intelligence available.")
+
+#     # ========================================================
+#     # CONSEQUENCE ANALYSIS
+#     # ========================================================
+
+#     print("\n")
+
+#     print("=" * 60)
+
+#     print("CONSEQUENCE ANALYSIS")
+
+#     print("=" * 60)
+
+#     if consequence_results:
+
+#         for item in consequence_results[:8]:
+
+#             print("\n----------------------------------------")
+
+#             print(
+#                 f"Stage       : {item['stage']}"
+#             )
+
+#             print(
+#                 f"Consequence : {item['consequence']}"
+#             )
+
+#             print(
+#                 f"Severity    : {item['severity']}"
+#             )
+
+#             print(
+#                 f"Probability : {item['probability']}"
+#             )
+
+#             print("\nBusiness Effects:")
+
+#             if item["business_effects"]:
+
+#                 for effect in item[
+#                     "business_effects"
+#                 ]:
+
+#                     print(f"- {effect}")
+
+#             else:
+
+#                 print("- None")
+
+#             print("\nCompliance Effects:")
+
+#             if item["compliance_effects"]:
+
+#                 for effect in item[
+#                     "compliance_effects"
+#                 ]:
+
+#                     print(f"- {effect}")
+
+#             else:
+
+#                 print("- None")
+
+#     else:
+
+#         print("\nNo consequence intelligence available.")
+
+#     # ========================================================
+#     # BUSINESS RISK SUMMARY
+#     # ========================================================
+
+#     print("\n")
+
+#     print("=" * 60)
+
+#     print("BUSINESS RISK SUMMARY")
+
+#     print("=" * 60)
+
+#     print(
+#         f"\nBusiness Risk Score : "
+#         f"{business_risk['score']}"
+#     )
+
+#     print(
+#         f"Business Risk Level : "
+#         f"{business_risk['risk_level']}"
+#     )
 
 #     # ========================================================
 #     # NLP SUMMARY
@@ -399,7 +717,17 @@
 
 #             "mitre_matches": mitre_summary,
 
-#             "executive_summary": narrative
+#             "executive_summary": narrative,
+
+#             "enriched_iocs": enriched_iocs,
+
+#             "impact_analysis": impact_analysis,
+
+#             "propagation_summary": propagation_summary,
+
+#             "consequence_summary": consequence_summary,
+
+#             "business_risk": business_risk
 #         }
 #     )
 
@@ -432,6 +760,22 @@
 #     )
 
 #     print(
+#         "✔ IOC enrichment complete."
+#     )
+
+#     print(
+#         "✔ Cross-domain impact analysis complete."
+#     )
+
+#     print(
+#         "✔ Propagation simulation complete."
+#     )
+
+#     print(
+#         "✔ Consequence cascade analysis complete."
+#     )
+
+#     print(
 #         "✔ Graph relationship analysis complete."
 #     )
 
@@ -459,8 +803,6 @@
 # if __name__ == "__main__":
 
 #     main()
-
-
 """
 Main CLI entry point
 for the C.D.K.C.I.A.E
@@ -616,6 +958,42 @@ def main():
         "enriched_iocs"
     ]
 
+    impact_analysis = pipeline_output[
+        "impact_analysis"
+    ]
+
+    propagation_results = pipeline_output[
+        "propagation_results"
+    ]
+
+    propagation_summary = pipeline_output[
+        "propagation_summary"
+    ]
+
+    consequence_results = pipeline_output[
+        "consequence_results"
+    ]
+
+    consequence_summary = pipeline_output[
+        "consequence_summary"
+    ]
+
+    business_risk = pipeline_output[
+        "business_risk"
+    ]
+
+    mapped_assets = pipeline_output[
+        "mapped_assets"
+    ]
+
+    asset_summary = pipeline_output[
+        "asset_summary"
+    ]
+
+    enterprise_exposure = pipeline_output[
+        "enterprise_exposure"
+    ]
+
     # ========================================================
     # BUILD KILL CHAIN
     # ========================================================
@@ -700,6 +1078,14 @@ def main():
     print("✔ Correlation Analysis Complete")
 
     print("✔ IOC Enrichment Complete")
+
+    print("✔ Cross-Domain Impact Analysis Complete")
+
+    print("✔ Propagation Simulation Complete")
+
+    print("✔ Consequence Cascade Analysis Complete")
+
+    print("✔ Enterprise Asset Mapping Complete")
 
     print("✔ Graph Intelligence Built")
 
@@ -793,10 +1179,6 @@ def main():
                 f"RISK     : {item.get('risk', 'UNKNOWN').upper()}"
             )
 
-            # =================================================
-            # EMAIL CONTEXT
-            # =================================================
-
             if item.get("domain"):
 
                 print(
@@ -809,19 +1191,11 @@ def main():
                     "ROLE ACC : TRUE"
                 )
 
-            # =================================================
-            # IP CONTEXT
-            # =================================================
-
             if item.get("classification"):
 
                 print(
                     f"CLASS    : {item['classification']}"
                 )
-
-            # =================================================
-            # CVE CONTEXT
-            # =================================================
 
             if item.get("severity"):
 
@@ -838,6 +1212,194 @@ def main():
     else:
 
         print("\nNo enrichment records available.")
+
+    # ========================================================
+    # CROSS-DOMAIN IMPACT ANALYSIS
+    # ========================================================
+
+    print("\n")
+
+    print("=" * 60)
+
+    print("CROSS-DOMAIN IMPACT ANALYSIS")
+
+    print("=" * 60)
+
+    print(
+        f"\nImpact Criticality: "
+        f"{impact_analysis['criticality']}"
+    )
+
+    print(
+        f"Impact Score: "
+        f"{impact_analysis['impact_score']}"
+    )
+
+    # ========================================================
+    # PROPAGATION ANALYSIS
+    # ========================================================
+
+    print("\n")
+
+    print("=" * 60)
+
+    print("PROPAGATION ANALYSIS")
+
+    print("=" * 60)
+
+    if propagation_summary:
+
+        for item in propagation_summary[:5]:
+
+            print("\n----------------------------------------")
+
+            print(
+                f"Path        : {item['path']}"
+            )
+
+            print(
+                f"Probability : {item['probability']}"
+            )
+
+            print(
+                f"Severity    : {item['severity']}"
+            )
+
+            print(
+                f"Depth       : {item['depth']}"
+            )
+
+    else:
+
+        print("\nNo propagation intelligence available.")
+
+    # ========================================================
+    # CONSEQUENCE ANALYSIS
+    # ========================================================
+
+    print("\n")
+
+    print("=" * 60)
+
+    print("CONSEQUENCE ANALYSIS")
+
+    print("=" * 60)
+
+    if consequence_results:
+
+        for item in consequence_results[:8]:
+
+            print("\n----------------------------------------")
+
+            print(
+                f"Stage       : {item['stage']}"
+            )
+
+            print(
+                f"Consequence : {item['consequence']}"
+            )
+
+            print(
+                f"Severity    : {item['severity']}"
+            )
+
+            print(
+                f"Probability : {item['probability']}"
+            )
+
+    else:
+
+        print("\nNo consequence intelligence available.")
+
+    # ========================================================
+    # BUSINESS RISK SUMMARY
+    # ========================================================
+
+    print("\n")
+
+    print("=" * 60)
+
+    print("BUSINESS RISK SUMMARY")
+
+    print("=" * 60)
+
+    print(
+        f"\nBusiness Risk Score : "
+        f"{business_risk['score']}"
+    )
+
+    print(
+        f"Business Risk Level : "
+        f"{business_risk['risk_level']}"
+    )
+
+    # ========================================================
+    # ENTERPRISE ASSET INTELLIGENCE
+    # ========================================================
+
+    print("\n")
+
+    print("=" * 60)
+
+    print("ENTERPRISE ASSET INTELLIGENCE")
+
+    print("=" * 60)
+
+    if mapped_assets:
+
+        for asset in mapped_assets[:10]:
+
+            print("\n----------------------------------------")
+
+            print(
+                f"Asset          : {asset['asset']}"
+            )
+
+            print(
+                f"Asset Type     : {asset['asset_type']}"
+            )
+
+            print(
+                f"Business Unit  : {asset['business_unit']}"
+            )
+
+            print(
+                f"Infrastructure : {asset['infrastructure']}"
+            )
+
+            print(
+                f"Asset Role     : {asset['asset_role']}"
+            )
+
+            print(
+                f"Criticality    : {asset['criticality']}"
+            )
+
+    else:
+
+        print("\nNo enterprise assets mapped.")
+
+    # ========================================================
+    # ENTERPRISE EXPOSURE SUMMARY
+    # ========================================================
+
+    print("\n")
+
+    print("=" * 60)
+
+    print("ENTERPRISE EXPOSURE SUMMARY")
+
+    print("=" * 60)
+
+    print(
+        f"\nExposure Score : "
+        f"{enterprise_exposure['exposure_score']}"
+    )
+
+    print(
+        f"Exposure Level : "
+        f"{enterprise_exposure['exposure_level']}"
+    )
 
     # ========================================================
     # NLP SUMMARY
@@ -946,7 +1508,20 @@ def main():
 
             "executive_summary": narrative,
 
-            "enriched_iocs": enriched_iocs
+            "enriched_iocs": enriched_iocs,
+
+            "impact_analysis": impact_analysis,
+
+            "propagation_summary": propagation_summary,
+
+            "consequence_summary": consequence_summary,
+
+            "business_risk": business_risk,
+
+            "asset_summary": asset_summary,
+
+            "enterprise_exposure":
+                enterprise_exposure
         }
     )
 
@@ -980,6 +1555,22 @@ def main():
 
     print(
         "✔ IOC enrichment complete."
+    )
+
+    print(
+        "✔ Cross-domain impact analysis complete."
+    )
+
+    print(
+        "✔ Propagation simulation complete."
+    )
+
+    print(
+        "✔ Consequence cascade analysis complete."
+    )
+
+    print(
+        "✔ Enterprise asset mapping complete."
     )
 
     print(
