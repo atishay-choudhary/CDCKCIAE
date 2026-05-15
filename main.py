@@ -104,7 +104,7 @@ def main():
 
     print(Fore.CYAN + "=" * 75)
     print(Fore.RED + banner)
-    print(Fore.YELLOW + "        Crodd Domain Kill-Chain Impact Assessment Engine")
+    print(Fore.YELLOW + "        Cross Domain Kill-Chain Impact Assessment Engine")
     print(Fore.CYAN + "=" * 75)
 
     print(Fore.GREEN + """
@@ -824,3 +824,4 @@ def main():
 if __name__ == "__main__":
 
     main()
+    
