@@ -256,12 +256,7 @@ def main():
     # THREAT SCORE
     # ========================================================
 
-    threat_level = calculate_threat_score(
-
-        results,
-
-        correlations
-    )
+    threat_level = pipeline_output["threat_level"]
 
     # ========================================================
     # BUILD SUMMARIES
@@ -459,6 +454,49 @@ def main():
     )
 
     # ========================================================
+    # CVSS IMPACT FACTORS
+    # ========================================================
+
+    cvss_impact = pipeline_output["cvss_impact"]
+
+    print("\n")
+
+    print("=" * 60)
+
+    print("CVSS v3.1 ENVIRONMENTAL IMPACT FACTORS")
+
+    print("=" * 60)
+
+    for scenario in cvss_impact["scenarios"][:4]:
+
+        print("\n----------------------------------------")
+
+        print(f"Scenario    : {scenario['scenario']} ({scenario['source']})")
+
+        print(f"Vector      : {scenario['vector']}")
+
+        print(f"Base Score  : {scenario['base_score']}")
+
+        print(
+            f"Requirement : {scenario['security_requirement']} "
+            f"({scenario['requirement_source']})"
+        )
+
+        print(f"Env. Score  : {scenario['environmental_score']}")
+
+    factors = cvss_impact["factors"]
+
+    print(f"\nExposure           : {factors['exposure']}")
+
+    if factors["attack_probability"]:
+
+        print(
+            f"Attack probability : "
+            f"{factors['attack_probability']['likelihood']} "
+            f"({factors['attack_probability']['path']})"
+        )
+
+    # ========================================================
     # PROPAGATION ANALYSIS
     # ========================================================
 
@@ -495,6 +533,48 @@ def main():
     else:
 
         print("\nNo propagation intelligence available.")
+
+    # ========================================================
+    # ATTACK PATH PREDICTION
+    # ========================================================
+
+    path_prediction = pipeline_output["path_prediction"]
+
+    print("\n")
+
+    print("=" * 60)
+
+    print("ATTACK PATH PREDICTION")
+
+    print("=" * 60)
+
+    print(
+        f"\nTransition probabilities: "
+        f"{path_prediction['transition_source']}"
+    )
+
+    if path_prediction["paths"]:
+
+        for item in path_prediction["paths"][:3]:
+
+            print("\n----------------------------------------")
+
+            print(f"Entry      : {item['entry']}")
+
+            print(f"Path       : {' -> '.join(item['path'])}")
+
+            print(f"Likelihood : {item['likelihood']}")
+
+        critical = path_prediction["centrality"][0]
+
+        print(
+            f"\nCritical stage (highest betweenness): "
+            f"{critical['stage']}"
+        )
+
+    else:
+
+        print("\nNo attack paths predicted.")
 
     # ========================================================
     # CONSEQUENCE ANALYSIS

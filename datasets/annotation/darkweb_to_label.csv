@@ -1,0 +1,4 @@
+id,source_type,source,text,severity,stage
+dw-001,mock,file://mock_sites/market1.html,Listings Vendor: nightbroker Access to US credit bureau infra (legacy systems). Includes: - entry node - partial internal access - some user records Crypto only. No time wasters.,,
+dw-002,mock,file://mock_sites/forum1.html,Thread: old credit bureau still leaking? ghostsec: anyone revisiting that 2017 credit agency mess? byteleak: some assets still exposed. legacy endpoints mostly. rootx: thought they patched everything after the struts issue? byteleak: patched ≠ fixed. found a box still responding. ghostsec: creds or just entry? byteleak: foothold only. might escalate.,,
+dw-003,mock,file://mock_sites/leak1.html,Drop: CB-Archive source: archived scrape emails: user@example.invalid user@example.invalid notes: old dataset but still valid structure some SSN patterns visible node: 10.0.0.1,,

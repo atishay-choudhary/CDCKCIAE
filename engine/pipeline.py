@@ -17,6 +17,7 @@ from engine.crawlers.source_list import DARK_WEB_SOURCES
 from engine.extractors.regex_basics import (
     extract_basic
 )
+from engine.evaluation.corpus import save_document
 
 # ============================================================
 # DATASETS
@@ -76,6 +77,9 @@ from engine.intelligence.killchain_mapper import (
 from engine.intelligence.threat_scorer import (
     calculate_threat_score
 )
+from engine.ml.inference import assess_threat
+from engine.graph.path_prediction import predict_attack_paths
+from engine.intelligence.cvss_impact import assess_cvss_impact
 
 from engine.intelligence.impact_engine import (
     analyze_cross_domain_impact
@@ -190,6 +194,7 @@ def run_pipeline():
         page_text = page_data["content"]
 
         all_documents.append(page_text)
+        save_document(url, page_text, "mock")
 
         # ====================================================
         # REGEX EXTRACTION
@@ -501,16 +506,21 @@ def run_pipeline():
         results
     )
 
+    path_prediction = predict_attack_paths(
+        kill_chain
+    )
+
     # ========================================================
     # THREAT SCORING
     # ========================================================
 
-    threat_level = calculate_threat_score(
-
+    threat_assessment = assess_threat(
+        all_documents,
         results,
-
         correlations
     )
+
+    threat_level = threat_assessment["threat_level"]
 
     # ========================================================
     # CROSS-DOMAIN IMPACT ENGINE
@@ -580,6 +590,18 @@ def run_pipeline():
 
         mapped_assets
     )
+
+    cvss_impact = assess_cvss_impact(
+        results,
+        correlations,
+        mapped_assets,
+        path_prediction
+    )
+
+    impact_analysis["impact_score_legacy"] = impact_analysis["impact_score"]
+    impact_analysis["criticality_legacy"] = impact_analysis["criticality"]
+    impact_analysis["impact_score"] = cvss_impact["impact_score"]
+    impact_analysis["criticality"] = cvss_impact["criticality"]
 
     # ========================================================
     # BUILD GRAPH
@@ -665,6 +687,9 @@ def run_pipeline():
         "kill_chain": kill_chain,
 
         "threat_level": threat_level,
+        "threat_assessment": threat_assessment,
+        "path_prediction": path_prediction,
+        "cvss_impact": cvss_impact,
 
         "impact_analysis": impact_analysis,
 

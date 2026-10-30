@@ -32,3 +32,6 @@ Thumbs.db
 
 # JSON
 *.json
+
+# Raw crawled documents (redacted; audit trail, never commit)
+datasets/crawled/

@@ -24,6 +24,7 @@ from engine.crawlers.darkweb_live_crawler import (
 from engine.extractors.regex_basics import (
     extract_basic
 )
+from engine.evaluation.corpus import save_document
 
 # ============================================================
 # DATASETS
@@ -88,6 +89,9 @@ from engine.intelligence.killchain_mapper import (
 from engine.intelligence.threat_scorer import (
     calculate_threat_score
 )
+from engine.ml.inference import assess_threat
+from engine.graph.path_prediction import predict_attack_paths
+from engine.intelligence.cvss_impact import assess_cvss_impact
 
 from engine.intelligence.impact_engine import (
     analyze_cross_domain_impact
@@ -203,6 +207,7 @@ def run_darkweb_pipeline(keywords):
         source_url = item["url"]
 
         all_documents.append(page_text)
+        save_document(source_url, page_text, "live")
 
         # ====================================================
         # REGEX EXTRACTION
@@ -514,16 +519,21 @@ def run_darkweb_pipeline(keywords):
         results
     )
 
+    path_prediction = predict_attack_paths(
+        kill_chain
+    )
+
     # ========================================================
     # THREAT SCORING
     # ========================================================
 
-    threat_level = calculate_threat_score(
-
+    threat_assessment = assess_threat(
+        all_documents,
         results,
-
         correlations
     )
+
+    threat_level = threat_assessment["threat_level"]
 
     # ========================================================
     # IMPACT ANALYSIS
@@ -593,6 +603,18 @@ def run_darkweb_pipeline(keywords):
 
         mapped_assets
     )
+
+    cvss_impact = assess_cvss_impact(
+        results,
+        correlations,
+        mapped_assets,
+        path_prediction
+    )
+
+    impact_analysis["impact_score_legacy"] = impact_analysis["impact_score"]
+    impact_analysis["criticality_legacy"] = impact_analysis["criticality"]
+    impact_analysis["impact_score"] = cvss_impact["impact_score"]
+    impact_analysis["criticality"] = cvss_impact["criticality"]
 
     # ========================================================
     # GRAPH
@@ -837,6 +859,9 @@ def run_darkweb_pipeline(keywords):
         "kill_chain": kill_chain,
 
         "threat_level": threat_level,
+        "threat_assessment": threat_assessment,
+        "path_prediction": path_prediction,
+        "cvss_impact": cvss_impact,
 
         "impact_analysis": impact_analysis,
 
