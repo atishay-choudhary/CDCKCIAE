@@ -75,4 +75,4 @@ def map_kill_chain(
 
             stages.add("Execution")
 
-    return list(stages)
+    return sorted(stages)

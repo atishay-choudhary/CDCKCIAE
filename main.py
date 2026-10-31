@@ -17,6 +17,7 @@ from colorama import Fore, Style, init
 # ============================================================
 
 from engine.pipeline import run_pipeline
+from engine.intelligence.cyber_kill_chain import print_cyber_kill_chain
 
 # ============================================================
 # DATASET LOADERS
@@ -603,6 +604,20 @@ def main():
         for kind, values in record["entities"].items():
 
             print(f"{kind:<14}: {', '.join(values[:8])}")
+
+    # ========================================================
+    # CYBER KILL CHAIN (SEVEN STAGES)
+    # ========================================================
+
+    print("\n")
+
+    print("=" * 60)
+
+    print("CYBER KILL CHAIN (7 STAGES)")
+
+    print("=" * 60)
+
+    print_cyber_kill_chain(pipeline_output["cyber_kill_chain"])
 
     # ========================================================
     # CONSEQUENCE ANALYSIS

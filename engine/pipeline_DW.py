@@ -90,6 +90,10 @@ from engine.intelligence.threat_scorer import (
     calculate_threat_score
 )
 from engine.ml.inference import assess_threat
+from engine.intelligence.cyber_kill_chain import (
+    map_cyber_kill_chain,
+    print_cyber_kill_chain
+)
 from engine.graph.path_prediction import predict_attack_paths
 from engine.intelligence.cvss_impact import assess_cvss_impact
 from engine.nlp.ner_extractor import extract_named_entities
@@ -565,6 +569,11 @@ def run_darkweb_pipeline(keywords):
 
     threat_level = threat_assessment["threat_level"]
 
+    cyber_kill_chain = map_cyber_kill_chain(
+        kill_chain,
+        threat_assessment
+    )
+
     # ========================================================
     # IMPACT ANALYSIS
     # ========================================================
@@ -776,6 +785,10 @@ def run_darkweb_pipeline(keywords):
         " → ".join(kill_chain)
     )
 
+    print("\n[CYBER KILL CHAIN (7 STAGES)]")
+
+    print_cyber_kill_chain(cyber_kill_chain)
+
     # ========================================================
     # THREAT LEVEL
     # ========================================================
@@ -890,6 +903,7 @@ def run_darkweb_pipeline(keywords):
 
         "threat_level": threat_level,
         "threat_assessment": threat_assessment,
+        "cyber_kill_chain": cyber_kill_chain,
         "path_prediction": path_prediction,
         "cvss_impact": cvss_impact,
         "status": "ok",

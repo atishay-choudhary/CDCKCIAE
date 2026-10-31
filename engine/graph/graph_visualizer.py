@@ -434,7 +434,8 @@ def visualize_graph(graph):
 
         if node in STAGE_LABELS:
 
-            labels[node] = STAGE_LABELS[node]
+            if node in graph:
+                labels[node] = STAGE_LABELS[node]
 
         else:
 
@@ -515,11 +516,14 @@ def visualize_graph(graph):
 
         0.025,
 
-        (
-            "Attack Flow: "
-            "Initial Access → Execution → "
-            "Privilege Escalation → "
-            "Exfiltration → Monetization"
+        "Observed Flow: " + (
+            " → ".join(
+                STAGE_LABELS[node].title()
+                for node in sorted(
+                    (n for n in graph.nodes() if n in KILL_CHAIN_ORDER),
+                    key=KILL_CHAIN_ORDER.get
+                )
+            ) or "no kill-chain stages observed"
         ),
 
         ha="center",

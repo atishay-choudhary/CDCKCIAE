@@ -62,28 +62,8 @@ def build_threat_graph(
     graph = nx.DiGraph()
 
     # ========================================================
-    # ADD STAGE NODES
-    # ========================================================
-
-    for stage in CATEGORY_STAGE_MAP.values():
-
-        graph.add_node(stage)
-
-    # ========================================================
-    # CONNECT STAGES
-    # ========================================================
-
-    for source, target in STAGE_FLOW:
-
-        graph.add_edge(
-
-            source,
-
-            target
-        )
-
-    # ========================================================
     # ADD ARTIFACTS
+    # (a stage node exists only if an artifact attaches to it)
     # ========================================================
 
     for item in results:
@@ -155,5 +135,23 @@ def build_threat_graph(
 
                 item["value"]
             )
+
+    # ========================================================
+    # CONNECT OBSERVED STAGES IN KILL-CHAIN ORDER
+    # ========================================================
+
+    observed = [
+
+        stage for stage in CATEGORY_STAGE_MAP.values()
+
+        if stage in graph
+    ]
+
+    graph.add_edges_from(zip(observed, observed[1:]))
+
+    # An artifact named like its own stage (keyword "access" under
+    # category access) is the stage itself, not a child of it.
+
+    graph.remove_edges_from(list(nx.selfloop_edges(graph)))
 
     return graph
