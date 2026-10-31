@@ -80,6 +80,8 @@ from engine.intelligence.threat_scorer import (
 from engine.ml.inference import assess_threat
 from engine.graph.path_prediction import predict_attack_paths
 from engine.intelligence.cvss_impact import assess_cvss_impact
+from engine.nlp.ner_extractor import extract_named_entities
+from engine.nlp.entity_merge import merge_entities
 
 from engine.intelligence.impact_engine import (
     analyze_cross_domain_impact
@@ -161,6 +163,7 @@ def run_pipeline():
     correlations = []
 
     all_documents = []
+    artifact_records = []
 
     seen = set()
 
@@ -219,6 +222,15 @@ def run_pipeline():
         entities = extract_entities(
             page_text
         )
+
+        artifact_records.append({
+            "source": url,
+            "source_type": "mock",
+            **merge_entities(
+                entities,
+                extract_named_entities(page_text)
+            )
+        })
 
         # ====================================================
         # PROCESS KEYWORD SIGNALS
@@ -690,6 +702,7 @@ def run_pipeline():
         "threat_assessment": threat_assessment,
         "path_prediction": path_prediction,
         "cvss_impact": cvss_impact,
+        "artifact_records": artifact_records,
 
         "impact_analysis": impact_analysis,
 

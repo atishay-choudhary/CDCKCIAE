@@ -1,0 +1,10 @@
+requests[socks]
+beautifulsoup4
+scikit-learn
+joblib
+networkx
+matplotlib
+reportlab
+pyfiglet
+colorama
+spacy

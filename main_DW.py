@@ -3,17 +3,55 @@ C.D.K.C.I.A.E
 Live Dark Web Threat Intelligence Demo
 C:\tor>.\tor.exe
 entry, foothold, escalate, struts, patched, leak, dataset, access, crypto
+
+If Tor (or every source) is unreachable the run falls back to the mock
+corpus and says so; use --no-fallback to stop instead.
 """
 
+import argparse
 
 from engine.crawlers.tor_session import (
     create_tor_session,
     test_tor_connection
 )
 
+from engine.crawlers.darkweb_live_crawler import log_event
+
+from engine.pipeline import run_pipeline
+
 from engine.pipeline_DW import (
     run_darkweb_pipeline
 )
+
+
+def fall_back_to_mock(reason, allowed):
+
+    """
+    Reliability fallback: runs the mock-site corpus and labels the
+    output as non-live. Returns False when fallback is disabled.
+    """
+
+    log_event({"mode": "mock-fallback", "reason": reason,
+               "enabled": allowed})
+
+    if not allowed:
+
+        print("\n[ERROR] " + reason)
+
+        print("[ERROR] Fallback disabled (--no-fallback); stopping.")
+
+        return False
+
+    print("\n[FALLBACK] " + reason)
+
+    print(
+        "[FALLBACK] Running the mock-site corpus instead. "
+        "Results below are NOT live dark web data.\n"
+    )
+
+    run_pipeline()
+
+    return True
 
 # ============================================================
 # IMPORTING FOR VISUALS ON TERMINAL
@@ -34,6 +72,17 @@ from colorama import (
 # ============================================================
 
 def main():
+
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        "--no-fallback",
+        action="store_true",
+        help="stop instead of running the mock corpus when live "
+             "collection is impossible"
+    )
+
+    allow_fallback = not parser.parse_args().no_fallback
 
     # ========================================================
     # TERMINAL SETUP
@@ -123,10 +172,9 @@ def main():
 
     if not tor_status["status"]:
 
-        print(
-
-            "\n[ERROR] "
-            "Tor connectivity failed."
+        fall_back_to_mock(
+            "Tor connectivity failed: " + tor_status["message"],
+            allow_fallback
         )
 
         return
@@ -176,9 +224,21 @@ def main():
         "\n[STARTING LIVE CTI PIPELINE]\n"
     )
 
-    run_darkweb_pipeline(
+    output = run_darkweb_pipeline(
         keywords
     )
+
+    if output["status"] == "unreachable":
+
+        fall_back_to_mock(
+            "No configured dark web source could be reached.",
+            allow_fallback
+        )
+
+        return
+
+    if output["status"] == "no_matches":
+        return
 
     # ========================================================
     # FINAL MESSAGE

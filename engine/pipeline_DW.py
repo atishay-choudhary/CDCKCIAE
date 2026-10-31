@@ -92,6 +92,8 @@ from engine.intelligence.threat_scorer import (
 from engine.ml.inference import assess_threat
 from engine.graph.path_prediction import predict_attack_paths
 from engine.intelligence.cvss_impact import assess_cvss_impact
+from engine.nlp.ner_extractor import extract_named_entities
+from engine.nlp.entity_merge import merge_entities
 
 from engine.intelligence.impact_engine import (
     analyze_cross_domain_impact
@@ -181,6 +183,7 @@ def run_darkweb_pipeline(keywords):
     correlations = []
 
     all_documents = []
+    artifact_records = []
 
     seen = set()
 
@@ -195,6 +198,24 @@ def run_darkweb_pipeline(keywords):
     collected_data = crawler.search_sources(
         keywords
     )
+
+    if not collected_data:
+
+        if crawler.report["reached"] == 0:
+
+            print(
+                "\n[!] No dark web source could be reached "
+                f"({crawler.report['failed']} failed)."
+            )
+
+            return {"status": "unreachable"}
+
+        print(
+            "\n[!] Sources were reachable but none matched "
+            "the keywords. Try different keywords."
+        )
+
+        return {"status": "no_matches"}
 
     # ========================================================
     # PROCESS COLLECTED DATA
@@ -232,6 +253,15 @@ def run_darkweb_pipeline(keywords):
         entities = extract_entities(
             page_text
         )
+
+        artifact_records.append({
+            "source": source_url,
+            "source_type": "live",
+            **merge_entities(
+                entities,
+                extract_named_entities(page_text)
+            )
+        })
 
         # ====================================================
         # KEYWORD SIGNALS
@@ -862,6 +892,8 @@ def run_darkweb_pipeline(keywords):
         "threat_assessment": threat_assessment,
         "path_prediction": path_prediction,
         "cvss_impact": cvss_impact,
+        "status": "ok",
+        "artifact_records": artifact_records,
 
         "impact_analysis": impact_analysis,
 

@@ -4,10 +4,19 @@ Tor session management module.
 Responsible for:
 - SOCKS5 proxy configuration
 - Tor-based requests session
-- connectivity testing
+- connectivity testing (proxy check, then retried routing check)
 """
 
+import socket
+import time
+
 import requests
+
+
+TOR_HOST = "127.0.0.1"
+TOR_PORT = 9050
+
+CHECK_URL = "https://check.torproject.org"
 
 
 # ============================================================
@@ -22,12 +31,9 @@ def create_tor_session():
 
     session = requests.Session()
 
-    session.proxies = {
+    proxy = f"socks5h://{TOR_HOST}:{TOR_PORT}"
 
-        "http": "socks5h://127.0.0.1:9050",
-
-        "https": "socks5h://127.0.0.1:9050"
-    }
+    session.proxies = {"http": proxy, "https": proxy}
 
     session.headers.update({
 
@@ -45,51 +51,83 @@ def create_tor_session():
 
 
 # ============================================================
-# TEST TOR CONNECTIVITY
+# TOR PROXY REACHABLE
 # ============================================================
 
-def test_tor_connection(session):
+def proxy_listening(host=TOR_HOST, port=TOR_PORT, timeout=3):
 
     """
-    Tests whether traffic is routed through Tor.
+    True if something accepts connections on the Tor SOCKS port.
     """
 
     try:
 
-        response = session.get(
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
 
-            "https://check.torproject.org",
+    except OSError:
+        return False
 
-            timeout=30
-        )
 
-        if response.status_code == 200:
+# ============================================================
+# TEST TOR CONNECTIVITY
+# ============================================================
 
-            if "Congratulations" in response.text:
+def test_tor_connection(session, attempts=3, wait=5):
 
-                return {
+    """
+    Tests whether traffic is routed through Tor.
 
-                    "status": True,
+    Fails at once, with a specific message, when the SOCKS proxy is
+    not running. Otherwise the routing check is retried, because Tor
+    needs a while to build circuits right after start-up.
+    """
 
-                    "message": (
-                        "Tor connection established successfully."
-                    )
-                }
+    if not proxy_listening():
 
         return {
 
             "status": False,
 
             "message": (
-                "Tor routing detected failure."
+                f"Tor SOCKS proxy not reachable on {TOR_HOST}:{TOR_PORT}. "
+                "Start Tor (e.g. tor.exe) and wait for it to bootstrap."
             )
         }
 
-    except Exception as e:
+    message = "Tor routing detected failure."
 
-        return {
+    for attempt in range(1, attempts + 1):
 
-            "status": False,
+        try:
 
-            "message": str(e)
-        }
+            response = session.get(CHECK_URL, timeout=30)
+
+            if (
+                response.status_code == 200
+                and "Congratulations" in response.text
+            ):
+
+                return {
+
+                    "status": True,
+
+                    "message": "Tor connection established successfully."
+                }
+
+            message = "Tor routing detected failure."
+
+        except requests.RequestException as e:
+
+            message = f"{type(e).__name__}: {e}"
+
+        if attempt < attempts:
+
+            print(
+                f"[TOR] Check {attempt}/{attempts} failed; "
+                f"retrying in {wait * attempt}s"
+            )
+
+            time.sleep(wait * attempt)
+
+    return {"status": False, "message": message}

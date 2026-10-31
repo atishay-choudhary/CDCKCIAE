@@ -577,6 +577,34 @@ def main():
         print("\nNo attack paths predicted.")
 
     # ========================================================
+    # NAMED ENTITIES
+    # ========================================================
+
+    print("\n")
+
+    print("=" * 60)
+
+    print("NAMED ENTITIES (regex + NER, merged)")
+
+    print("=" * 60)
+
+    for record in pipeline_output["artifact_records"]:
+
+        print("\n----------------------------------------")
+
+        print(f"Source     : {record['source']}")
+
+        print(
+            f"Extracted  : regex {record['regex_count']}, "
+            f"NER {record['ner_count']}, "
+            f"duplicates removed {record['duplicates_removed']}"
+        )
+
+        for kind, values in record["entities"].items():
+
+            print(f"{kind:<14}: {', '.join(values[:8])}")
+
+    # ========================================================
     # CONSEQUENCE ANALYSIS
     # ========================================================
 
