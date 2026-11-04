@@ -5,12 +5,14 @@ Creates a kill-chain-oriented
 threat intelligence graph.
 """
 
-import os
+import io
 
 from datetime import datetime
 
 import matplotlib.pyplot as plt
 import networkx as nx
+
+from engine import datastore
 
 
 # ============================================================
@@ -237,11 +239,15 @@ def get_node_size(node):
 # VISUALIZE GRAPH
 # ============================================================
 
-def visualize_graph(graph):
+def visualize_graph(graph, show=False):
 
     """
-    Displays structured CTI graph.
+    Renders the structured CTI graph to the database (generated_file);
+    show=True also opens a window (command-line use).
     """
+
+    if not show:
+        plt.switch_backend("Agg")     # no GUI window (backend threads)
 
     plt.figure(figsize=(28, 15))
 
@@ -554,28 +560,23 @@ def visualize_graph(graph):
     )
 
     # --------------------------------------------------------
-    # OUTPUT DIRECTORY
+    # EXPORT PNG (stored in the database, generated_file)
     # --------------------------------------------------------
 
-    os.makedirs(
-
-        "outputs",
-
-        exist_ok=True
-    )
-
-    # --------------------------------------------------------
-    # EXPORT PNG
-    # --------------------------------------------------------
+    image = io.BytesIO()
 
     plt.savefig(
 
-        "outputs/threat_graph.png",
+        image,
+
+        format="png",
 
         dpi=300,
 
         bbox_inches="tight"
     )
+
+    datastore.save_file("png", "threat_graph.png", image.getvalue())
 
     # --------------------------------------------------------
     # FINAL LAYOUT FIX
@@ -591,4 +592,7 @@ def visualize_graph(graph):
 
     plt.tight_layout()
 
-    plt.show()
+    if show:
+        plt.show()
+
+    plt.close("all")

@@ -3,7 +3,7 @@ Named-entity extraction (O2: FR-2.1), alongside the regex extractors.
 
 spaCy's statistical NER supplies organisations, locations and products.
 It has no notion of threat actors or malware, so an EntityRuler built
-from the MITRE ATT&CK bundle already in datasets/ adds:
+from the MITRE ATT&CK bundle already in the database adds:
 
 - threat_actors : intrusion-set names and aliases
 - malware_tools : malware / tool names and aliases
@@ -23,14 +23,11 @@ Setup:
     python -m spacy download en_core_web_sm
 """
 
-import json
-import os
+from engine import datastore
 
 
 MODEL = "en_core_web_sm"
-MITRE_FILE = "datasets/mitre/raw/enterprise-attack.json"
-GENERIC_TEXT_FILE = "datasets/cves/raw/nvdcve-2.0-recent.json"
-CACHE_PATH = "models/attack_names.json"
+CACHE_KEY = "attack_names"
 
 MIN_NAME_LENGTH = 4
 MIN_ANY_CASE_LENGTH = 6
@@ -55,14 +52,13 @@ def _generic_text_hits(names):
 
     import spacy
 
-    try:
-        with open(GENERIC_TEXT_FILE, "r", encoding="utf-8") as f:
-            texts = [
-                v["cve"]["descriptions"][0]["value"]
-                for v in json.load(f)["vulnerabilities"]
-            ]
+    texts = [
+        v["cve"]["descriptions"][0]["value"]
+        for v in datastore.nvd_vulnerabilities(recent_only=True)
+        if v["cve"].get("descriptions")
+    ]
 
-    except FileNotFoundError:
+    if not texts:
         return None
 
     nlp = spacy.blank("en")
@@ -82,19 +78,17 @@ def attack_names():
     """
     {"THREAT_ACTOR": [...], "MALWARE_TOOL": [...],
      "ANY_CASE": [names also matched in any case]} from ATT&CK;
-    cached after the first build.
+    cached in the store_cache table after the first build.
     """
 
-    if os.path.exists(CACHE_PATH):
+    cached = datastore.cache_get(CACHE_KEY)
 
-        with open(CACHE_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
+    if cached:
+        return cached
 
-    try:
-        with open(MITRE_FILE, "r", encoding="utf-8") as f:
-            objects = json.load(f)["objects"]
+    objects = datastore.mitre_objects()
 
-    except FileNotFoundError:
+    if not objects:
         return {}
 
     from spacy.lang.en.stop_words import STOP_WORDS
@@ -148,10 +142,7 @@ def attack_names():
         if common is not None else []
     )
 
-    os.makedirs(os.path.dirname(CACHE_PATH), exist_ok=True)
-
-    with open(CACHE_PATH, "w", encoding="utf-8") as f:
-        json.dump(names, f)
+    datastore.cache_set(CACHE_KEY, names)
 
     return names
 

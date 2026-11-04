@@ -4,14 +4,13 @@ Regex-vs-NER comparison on an annotated sample (FR-2.3, O2/O6).
 Both extractors, and their merge (FR-2.4), are scored on snippets that
 you annotate by hand. Two steps:
 
-1. export : crawled snippets -> datasets/annotation/entities_to_label.csv
-2. score  : your labelled copy -> precision / recall / F1 per type
+1. export : corpus_document snippets -> annotation_sample table
+2. label  : per snippet, list every entity of each type, separated by |
+3. score  : labelled snippets -> precision / recall / F1 per type
 
 Workflow (from the project root):
     python -m engine.evaluation.ner_evaluation export
-    # copy entities_to_label.csv -> entities_labelled.csv, then in each
-    # row list every entity of each type found in the text, separated
-    # by |  (leave a cell empty if there is none)
+    python -m engine.evaluation.ner_evaluation label ent-001 emails=a@b.c cves=CVE-2024-1|CVE-2024-2
     python -m engine.evaluation.ner_evaluation score
 
 Annotation guide:
@@ -25,21 +24,16 @@ Matching is case-insensitive on the exact string.
 """
 
 import argparse
-import csv
-import json
-import os
 import random
 
-from engine.evaluation.corpus import CORPUS_PATH
+from engine import datastore
 from engine.evaluation.darkweb_validation import _snippets
 from engine.nlp.entity_extractor import extract_entities
 from engine.nlp.entity_merge import merge_entities
 from engine.nlp.ner_extractor import extract_named_entities
 
 
-TO_LABEL_PATH = "datasets/annotation/entities_to_label.csv"
-LABELLED_PATH = "datasets/annotation/entities_labelled.csv"
-REPORT_PATH = "outputs/ner_evaluation.json"
+TASK = "entities"
 
 TYPES = [
     "emails", "ipv4", "cves", "domains",
@@ -55,18 +49,14 @@ def export():
 
     snippets = {}
 
-    with open(CORPUS_PATH, "r", encoding="utf-8") as f:
+    for doc in datastore.documents():
 
-        for line in f:
-
-            doc = json.loads(line)
-
-            for snippet in _snippets(doc["text"]):
-                snippets.setdefault(snippet, {
-                    "source": doc["url"],
-                    "source_type": doc["source_type"],
-                    "text": snippet
-                })
+        for snippet in _snippets(doc["text"]):
+            snippets.setdefault(snippet, {
+                "source": doc["url"],
+                "source_type": doc["source_type"],
+                "text": snippet
+            })
 
     rows = list(snippets.values())
 
@@ -76,21 +66,25 @@ def export():
 
     for i, row in enumerate(rows, 1):
         row["id"] = f"ent-{i:03d}"
-        row.update({t: "" for t in TYPES})
 
-    os.makedirs(os.path.dirname(TO_LABEL_PATH), exist_ok=True)
+    datastore.annotation_replace(TASK, rows)
 
-    with open(TO_LABEL_PATH, "w", encoding="utf-8", newline="") as f:
+    print(f"[+] {len(rows)} snippets stored in the database (annotation_sample)")
+    print("    Label each one: label <id> <type>=a|b ...  then run: score")
 
-        writer = csv.DictWriter(
-            f, fieldnames=["id", "source", "source_type", "text"] + TYPES
-        )
-        writer.writeheader()
-        writer.writerows(rows)
 
-    print(f"[+] {len(rows)} snippets -> {TO_LABEL_PATH}")
-    print(f"    Copy it to {LABELLED_PATH}, fill the entity columns "
-          f"(separate values with |), then run: score")
+def label(sample_id, pairs):
+
+    values = dict(p.split("=", 1) for p in pairs)
+
+    unknown = set(values) - set(TYPES)
+
+    if unknown:
+        raise SystemExit(f"unknown entity types: {sorted(unknown)}")
+
+    datastore.annotation_label(TASK, sample_id, values)
+
+    print(f"[+] {sample_id}: {values}")
 
 
 def _cell(value):
@@ -120,8 +114,10 @@ def _prf(tp, fp, fn):
 
 def score():
 
-    with open(LABELLED_PATH, "r", encoding="utf-8", newline="") as f:
-        rows = list(csv.DictReader(f))
+    rows = [
+        r for r in datastore.annotation_rows(TASK)
+        if any(r.get(t) for t in TYPES)
+    ]
 
     systems = {"regex": {}, "ner": {}, "merged": {}}
 
@@ -190,18 +186,24 @@ def score():
 
         print(f"{kind:<15}{gold_support[kind]:>5}  {cells}")
 
-    os.makedirs(os.path.dirname(REPORT_PATH), exist_ok=True)
+    datastore.save_report("ner_evaluation", report)
 
-    with open(REPORT_PATH, "w", encoding="utf-8") as f:
-        json.dump(report, f, indent=2)
-
-    print(f"\n[+] {REPORT_PATH}")
+    print("\n[+] Stored in the database")
 
 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("step", choices=["export", "score"])
+    parser.add_argument("step", choices=["export", "label", "score"])
+    parser.add_argument("id", nargs="?")
+    parser.add_argument("labels", nargs="*", help="emails=a@b.c cves=CVE-1|CVE-2")
     args = parser.parse_args()
 
-    export() if args.step == "export" else score()
+    if args.step == "export":
+        export()
+
+    elif args.step == "label":
+        label(args.id, args.labels)
+
+    else:
+        score()

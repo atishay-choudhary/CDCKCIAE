@@ -820,7 +820,7 @@ def main():
     )
 
     visualize_graph(
-        threat_graph
+        threat_graph, show=True
     )
 
     # ========================================================
@@ -932,11 +932,11 @@ def main():
     )
 
     print(
-        "- outputs/threat_graph.png"
+        "- threat_graph.png (database: generated_file)"
     )
 
     print(
-        "- outputs/threat_intelligence_report.pdf\n"
+        "- threat_intelligence_report.pdf (database: generated_file)\n"
     )
 
 

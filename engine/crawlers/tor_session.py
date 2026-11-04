@@ -7,14 +7,19 @@ Responsible for:
 - connectivity testing (proxy check, then retried routing check)
 """
 
+import os
 import socket
 import time
 
 import requests
 
 
-TOR_HOST = "127.0.0.1"
-TOR_PORT = 9050
+# Where the Tor client listens. Override for a deployment:
+#   CDKCIAE_TOR_HOST  (default 127.0.0.1; a Docker service name, e.g. "tor")
+#   CDKCIAE_TOR_PORT  (default 9050 = tor.exe / tor daemon; Tor Browser
+#                      uses 9150)
+TOR_HOST = os.environ.get("CDKCIAE_TOR_HOST", "127.0.0.1")
+TOR_PORT = int(os.environ.get("CDKCIAE_TOR_PORT", "9050"))
 
 CHECK_URL = "https://check.torproject.org"
 

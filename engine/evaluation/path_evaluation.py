@@ -6,7 +6,7 @@ propagation engine's highest-probability path, on two ground truths:
 
 1. held-out ATT&CK intrusion sets (transitions learned on the other
    groups only), entry = Initial Access
-2. the historical incidents in datasets/historical (techniques ->
+2. the historical_attack table (techniques ->
    stages), entry = the incident's earliest stage
 
 Metrics (ATT&CK does not record temporal order, so order is not scored):
@@ -24,12 +24,11 @@ Run from the project root:
     python -m engine.evaluation.path_evaluation
 """
 
-import json
 import math
-import os
 import random
 from statistics import mean
 
+from engine import datastore
 from engine.graph.path_prediction import (
     STAGE_ORDER,
     build_graph,
@@ -43,8 +42,6 @@ from engine.intelligence.propagation_engine import (
 )
 
 
-HISTORICAL_PATH = "datasets/historical/historical_attacks.json"
-REPORT_PATH = "outputs/path_evaluation.json"
 
 SEED = 42
 TEST_FRACTION = 0.2
@@ -180,8 +177,7 @@ def group_cases(groups):
 
 def incident_cases(technique_stages):
 
-    with open(HISTORICAL_PATH, "r", encoding="utf-8") as f:
-        attacks = json.load(f)
+    attacks = datastore.historical_attacks()
 
     cases = []
 
@@ -219,7 +215,8 @@ def _print(title, result):
         )
 
 
-def main():
+def run():
+    """Runs the evaluation and returns the report dict."""
 
     technique_stages, groups = load_attack_data()
 
@@ -262,20 +259,18 @@ def main():
     print(f"baseline  {calibration_result['baseline']:.3f}")
     print(f"model     {calibration_result['model']:.3f}")
 
-    os.makedirs(os.path.dirname(REPORT_PATH), exist_ok=True)
+    return {
+        "held_out_groups": group_result,
+        "incidents": incident_result,
+        "calibration": calibration_result
+    }
 
-    with open(REPORT_PATH, "w", encoding="utf-8") as f:
-        json.dump(
-            {
-                "held_out_groups": group_result,
-                "incidents": incident_result,
-                "calibration": calibration_result
-            },
-            f,
-            indent=2
-        )
 
-    print(f"\n[+] {REPORT_PATH}")
+def main():
+
+    datastore.save_report("path_evaluation", run())
+
+    print("\n[+] Stored in the database")
 
 
 if __name__ == "__main__":

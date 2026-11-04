@@ -7,6 +7,8 @@ Supports:
 - Local mock files
 """
 
+from engine import datastore
+
 from .base import BaseCrawler
 
 
@@ -28,21 +30,15 @@ class DarkWebCrawler(BaseCrawler):
         Fetch dark web content.
         """
 
-        # Mock local files
-        if url.startswith("file://"):
+        # Mock pages (stored in the database)
+        if url.startswith("mock://"):
 
-            try:
+            page = datastore.mock_page(url)
 
-                path = url.replace("file://", "")
+            if page is None:
+                print(f"[Mock Page Error] {url} not found in the database")
 
-                with open(path, "r", encoding="utf-8") as f:
-                    return f.read()
-
-            except Exception as e:
-
-                print(f"[Mock File Error] {url} -> {e}")
-
-                return None
+            return page
 
         print(f"[Dark Web] Crawling: {url}")
 

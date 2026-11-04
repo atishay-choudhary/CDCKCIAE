@@ -1,13 +1,15 @@
 """
-Dark web and mock intelligence sources.
+Mock intelligence sources (local test pages kept in the database,
+table crawl_source with kind "mock").
 """
 
-DARK_WEB_SOURCES = [
+from engine import datastore
 
-    "file://mock_sites/forum1.html",
 
-    "file://mock_sites/market1.html",
+def dark_web_sources():
 
-    "file://mock_sites/leak1.html"
+    """
+    URLs of the mock pages (mock://forum1.html, ...).
+    """
 
-]
+    return [source["url"] for source in datastore.crawl_sources("mock")]

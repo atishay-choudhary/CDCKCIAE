@@ -7,10 +7,11 @@ for the C.D.K.C.I.A.E platform.
 # IMPORTS
 # ============================================================
 
-import os
+import io
 
 from datetime import datetime
 
+from engine import datastore
 from reportlab.platypus import (
 
     SimpleDocTemplate,
@@ -32,30 +33,23 @@ from reportlab.platypus.flowables import HRFlowable
 # GENERATE PDF REPORT
 # ============================================================
 
-def generate_pdf_report(report_data):
+def generate_pdf_report(report_data, output=None):
 
     """
     Generates a professional PDF
     threat intelligence report.
+
+    output: optional file-like object (e.g. BytesIO) to write the PDF
+    into instead of storing it in generated_file.
     """
 
     # ========================================================
     # OUTPUT SETUP
     # ========================================================
 
-    os.makedirs(
+    buffer = output if output is not None else io.BytesIO()
 
-        "outputs",
-
-        exist_ok=True
-    )
-
-    report_path = os.path.join(
-
-        "outputs",
-
-        "threat_intelligence_report.pdf"
-    )
+    report_path = buffer
 
     # ========================================================
     # DOCUMENT
@@ -1220,14 +1214,9 @@ def generate_pdf_report(report_data):
     # GRAPH VISUALIZATION
     # ========================================================
 
-    graph_path = os.path.join(
+    graph_bytes = datastore.latest_file("png", "threat_graph.png")
 
-        "outputs",
-
-        "threat_graph.png"
-    )
-
-    if os.path.exists(graph_path):
+    if graph_bytes:
 
         elements.append(
 
@@ -1258,7 +1247,7 @@ def generate_pdf_report(report_data):
 
         graph_image = Image(
 
-            graph_path,
+            io.BytesIO(graph_bytes),
 
             width=540,
             height=420
@@ -1297,4 +1286,10 @@ def generate_pdf_report(report_data):
 
     doc.build(elements)
 
-    return report_path
+    if output is None:
+
+        datastore.save_file(
+            "pdf", "threat_intelligence_report.pdf", buffer.getvalue()
+        )
+
+    return "threat_intelligence_report.pdf (database)"

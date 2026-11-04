@@ -35,3 +35,7 @@ Thumbs.db
 
 # Raw crawled documents (redacted; audit trail, never commit)
 datasets/crawled/
+frontend/node_modules/
+
+# Internal Docs
+docs

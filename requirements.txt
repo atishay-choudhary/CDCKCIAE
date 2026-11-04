@@ -8,3 +8,4 @@ reportlab
 pyfiglet
 colorama
 spacy
+Django>=5.2,<5.3

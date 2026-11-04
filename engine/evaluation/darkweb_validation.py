@@ -5,25 +5,22 @@ Measures how the trained models and the rule-based baseline perform on
 real dark-web text, which the NVD / ATT&CK-trained models have never
 seen. Two steps:
 
-1. export : crawled snippets -> datasets/annotation/darkweb_to_label.csv
-2. score  : your labelled copy -> precision / recall / F1 report
+1. export : corpus_document snippets -> annotation_sample table
+2. label  : record your labels in the table, one snippet at a time
+3. score  : labelled snippets -> precision / recall / F1 report
 
 Workflow (from the project root):
     python -m engine.evaluation.darkweb_validation export
-    # copy darkweb_to_label.csv -> darkweb_labelled.csv, fill the
-    # `severity` and `stage` columns by hand (both annotators, agree)
+    python -m engine.evaluation.darkweb_validation label dw-001 severity=HIGH stage=Delivery
     python -m engine.evaluation.darkweb_validation score
 """
 
 import argparse
-import csv
-import json
-import os
 import random
 import re
 import textwrap
 
-from engine.evaluation.corpus import CORPUS_PATH
+from engine import datastore
 from engine.evaluation.evaluate import (
     BASELINES,
     TASK_LABELS,
@@ -34,15 +31,11 @@ from engine.evaluation.evaluate import (
 from engine.ml.classifier import predict
 
 
-TO_LABEL_PATH = "datasets/annotation/darkweb_to_label.csv"
-LABELLED_PATH = "datasets/annotation/darkweb_labelled.csv"
+TASK = "darkweb"
 
 SNIPPET_CHARS = 400
 SAMPLE_SIZE = 150
 SEED = 42
-
-COLUMNS = ["id", "source_type", "source", "text", "severity", "stage"]
-
 
 def _snippets(text):
 
@@ -71,19 +64,15 @@ def export():
 
     snippets = {}
 
-    with open(CORPUS_PATH, "r", encoding="utf-8") as f:
+    for doc in datastore.documents():
 
-        for line in f:
+        for snippet in _snippets(doc["text"]):
 
-            doc = json.loads(line)
-
-            for snippet in _snippets(doc["text"]):
-
-                snippets.setdefault(snippet, {
-                    "source_type": doc["source_type"],
-                    "source": doc["url"],
-                    "text": snippet
-                })
+            snippets.setdefault(snippet, {
+                "source_type": doc["source_type"],
+                "source": doc["url"],
+                "text": snippet
+            })
 
     rows = list(snippets.values())
 
@@ -92,34 +81,36 @@ def export():
     rows = rows[:SAMPLE_SIZE]
 
     for i, row in enumerate(rows, 1):
-        row.update({"id": f"dw-{i:03d}", "severity": "", "stage": ""})
+        row["id"] = f"dw-{i:03d}"
 
-    os.makedirs(os.path.dirname(TO_LABEL_PATH), exist_ok=True)
+    datastore.annotation_replace(TASK, rows)
 
-    with open(TO_LABEL_PATH, "w", encoding="utf-8", newline="") as f:
-
-        writer = csv.DictWriter(f, fieldnames=COLUMNS)
-        writer.writeheader()
-        writer.writerows(rows)
-
-    print(f"[+] {len(rows)} snippets -> {TO_LABEL_PATH}")
-    print(f"    Copy it to {LABELLED_PATH} and fill:")
+    print(f"[+] {len(rows)} snippets stored in the database (annotation_sample)")
+    print("    Label each one: label <id> severity=... stage=...")
     print(f"      severity : {' / '.join(TASK_LABELS['severity'])}")
     print(f"      stage    : {' / '.join(TASK_LABELS['stage'])} "
           f"(leave blank if none applies)")
 
 
+def label(sample_id, pairs):
+
+    values = dict(p.split("=", 1) for p in pairs)
+
+    datastore.annotation_label(TASK, sample_id, values)
+
+    print(f"[+] {sample_id}: {values}")
+
+
 def run_score():
 
-    with open(LABELLED_PATH, "r", encoding="utf-8", newline="") as f:
-        rows = list(csv.DictReader(f))
+    rows = datastore.annotation_rows(TASK)
 
     for task in ("severity", "stage"):
 
         labels = TASK_LABELS[task]
 
         for row in rows:
-            value = row[task].strip()
+            value = str(row.get(task, "")).strip()
             row[task] = value.upper() if task == "severity" else value
 
         invalid = {r[task] for r in rows if r[task] and r[task] not in labels}
@@ -162,7 +153,16 @@ def run_score():
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("step", choices=["export", "score"])
+    parser.add_argument("step", choices=["export", "label", "score"])
+    parser.add_argument("id", nargs="?")
+    parser.add_argument("labels", nargs="*", help="severity=HIGH stage=Delivery")
     args = parser.parse_args()
 
-    export() if args.step == "export" else run_score()
+    if args.step == "export":
+        export()
+
+    elif args.step == "label":
+        label(args.id, args.labels)
+
+    else:
+        run_score()

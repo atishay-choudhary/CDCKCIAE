@@ -20,11 +20,11 @@ report the worst case). Exposure and attack probability are reported
 beside it for explainability; they do not change the CVSS score.
 """
 
-import json
 import math
 
+from engine import datastore
 
-NVD_RECENT = "datasets/cves/raw/nvdcve-2.0-recent.json"
+
 
 # ----------------------------------------------------------------
 # CVSS v3.1 specification constants
@@ -177,33 +177,19 @@ def rating(score):
     return "NONE"
 
 
-def cve_vectors(cve_ids, path=NVD_RECENT):
+def cve_vectors(cve_ids):
     """
-    {CVE-ID: v3.1 vector} for the ids present in the NVD file.
+    {CVE-ID: v3.1 vector} for the ids present in the nvd_record table.
     """
 
     if not cve_ids:
         return {}
 
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            vulnerabilities = json.load(f)["vulnerabilities"]
-
-    except FileNotFoundError:
-        return {}
-
-    vectors = {}
-
-    for item in vulnerabilities:
-
-        cve = item["cve"]
-
-        if cve["id"] in cve_ids and cve.get("metrics", {}).get("cvssMetricV31"):
-            vectors[cve["id"]] = (
-                cve["metrics"]["cvssMetricV31"][0]["cvssData"]["vectorString"]
-            )
-
-    return vectors
+    return {
+        cve_id: record["metrics"]["cvssMetricV31"][0]["cvssData"]["vectorString"]
+        for cve_id, record in datastore.nvd_by_ids(cve_ids).items()
+        if record.get("metrics", {}).get("cvssMetricV31")
+    }
 
 
 def assess_cvss_impact(

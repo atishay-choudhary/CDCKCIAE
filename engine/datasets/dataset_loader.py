@@ -1,89 +1,53 @@
 """
 Dataset Loader Module
 
-Responsible for:
-- NVD CVE dataset loading
-- MITRE ATT&CK loading
-- CISA KEV loading
-- Historical attack loading
+Reads the reference datasets from the database (they are put there by
+python backend/manage.py sync_reference):
+- NVD CVE dataset
+- MITRE ATT&CK
+- CISA KEV
+- Historical attacks
 """
 
-import json
+from engine import datastore
 
 
 # ============================================================
-# LOAD NVD CVE DATASET
+# LOAD NVD CVE DATASET (the "recent" feed)
 # ============================================================
 
-def load_cve_dataset(
-
-    path="datasets/cves/raw/nvdcve-2.0-recent.json"
-):
+def load_cve_dataset():
 
     cves = []
 
     try:
 
-        with open(path, "r", encoding="utf-8") as f:
+        for item in datastore.nvd_vulnerabilities(recent_only=True):
 
-            data = json.load(f)
+            cve = item["cve"]
 
-        vulnerabilities = data.get(
-            "vulnerabilities",
-            []
-        )
-
-        for item in vulnerabilities:
-
-            cve = item.get("cve", {})
-
-            cve_id = cve.get("id")
-
-            # ------------------------------------------------
-            # DESCRIPTION
-            # ------------------------------------------------
-
-            descriptions = cve.get(
-                "descriptions",
-                []
-            )
-
-            description = ""
-
-            if descriptions:
-
-                description = descriptions[0].get(
-                    "value",
-                    ""
-                )
-
-            # ------------------------------------------------
-            # SEVERITY
-            # ------------------------------------------------
+            descriptions = cve.get("descriptions", [])
 
             severity = "UNKNOWN"
 
-            metrics = cve.get(
-                "metrics",
-                {}
-            )
-
             try:
 
-                severity = metrics[
+                severity = cve["metrics"][
                     "cvssMetricV31"
                 ][0]["cvssData"]["baseSeverity"]
 
-            except:
+            except (KeyError, IndexError, TypeError):
                 pass
 
             cves.append({
 
-                "cve_id": cve_id,
+                "cve_id": cve.get("id"),
 
-                "severity": severity,
+                "severity": severity or "UNKNOWN",
 
-                "description": description
+                "description": (
+                    descriptions[0].get("value", "") if descriptions else ""
+                )
             })
 
     except Exception as e:
@@ -97,43 +61,23 @@ def load_cve_dataset(
 # LOAD MITRE ATT&CK DATASET
 # ============================================================
 
-def load_mitre_dataset(
-
-    path="datasets/mitre/raw/enterprise-attack.json"
-):
+def load_mitre_dataset():
 
     techniques = []
 
     try:
 
-        with open(path, "r", encoding="utf-8") as f:
-
-            data = json.load(f)
-
-        objects = data.get(
-            "objects",
-            []
-        )
-
-        for obj in objects:
+        for obj in datastore.mitre_objects():
 
             if obj.get("type") != "attack-pattern":
                 continue
 
-            external_refs = obj.get(
-                "external_references",
-                []
-            )
-
             technique_id = None
 
-            for ref in external_refs:
+            for ref in obj.get("external_references", []):
 
                 if ref.get("source_name") == "mitre-attack":
-
-                    technique_id = ref.get(
-                        "external_id"
-                    )
+                    technique_id = ref.get("external_id")
 
             techniques.append({
 
@@ -141,10 +85,7 @@ def load_mitre_dataset(
 
                 "name": obj.get("name"),
 
-                "description": obj.get(
-                    "description",
-                    ""
-                )
+                "description": obj.get("description", "")
             })
 
     except Exception as e:
@@ -158,67 +99,29 @@ def load_mitre_dataset(
 # LOAD CISA KEV DATASET
 # ============================================================
 
-def load_kev_dataset(
-
-    path=(
-        "datasets/cisa/raw/"
-        "known_exploited_vulnerabilities.json"
-    )
-):
-
-    kev_entries = []
+def load_kev_dataset():
 
     try:
-
-        with open(path, "r", encoding="utf-8") as f:
-
-            data = json.load(f)
-
-        vulnerabilities = data.get(
-            "vulnerabilities",
-            []
-        )
-
-        for vuln in vulnerabilities:
-
-            kev_entries.append({
-
-                "cve_id": vuln.get("cveID"),
-
-                "vendor": vuln.get("vendorProject"),
-
-                "product": vuln.get("product"),
-
-                "name": vuln.get("vulnerabilityName")
-            })
+        return datastore.kev_entries()
 
     except Exception as e:
 
         print(f"[Dataset Error] KEV dataset -> {e}")
 
-    return kev_entries
+        return []
 
 
 # ============================================================
 # LOAD HISTORICAL ATTACKS
 # ============================================================
 
-def load_historical_attacks(
-
-    path="datasets/historical/historical_attacks.json"
-):
+def load_historical_attacks():
 
     try:
-
-        with open(path, "r", encoding="utf-8") as f:
-
-            return json.load(f)
+        return datastore.historical_attacks()
 
     except Exception as e:
 
-        print(
-            f"[Dataset Error] "
-            f"Historical attacks -> {e}"
-        )
+        print(f"[Dataset Error] Historical attacks -> {e}")
 
         return []

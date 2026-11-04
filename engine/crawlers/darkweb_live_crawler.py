@@ -5,7 +5,7 @@ Responsible for:
 - Tor-based, read-only collection (HTTP GET only)
 - retry with exponential backoff and jitter; Retry-After is honoured
 - one failing source never stops the run
-- an audit record for every source accessed
+- an audit record (database table audit_event) for every source accessed
 
 Policy: the crawler does not try to defeat anti-crawling defences.
 Rate limiting (429 / 503) is waited out; a 403 or any other client
@@ -13,10 +13,9 @@ error is recorded and the source is skipped. Responses are size-capped
 and non-text content is not stored.
 """
 
-import json
-import os
 import random
 import time
+from urllib.parse import quote_plus
 from datetime import datetime, timezone
 
 import requests
@@ -26,12 +25,12 @@ from engine.crawlers.tor_session import (
     create_tor_session
 )
 
+from engine import datastore
+
 from engine.crawlers.dw_sources import (
     get_all_sources
 )
 
-
-AUDIT_PATH = "datasets/crawled/audit.jsonl"
 
 MAX_ATTEMPTS = 4
 BACKOFF_BASE = 2.0
@@ -50,8 +49,8 @@ RETRY_STATUS = {408, 425, 429, 500, 502, 503, 504}
 def log_event(event):
 
     """
-    Appends one audit record. Never raises: auditing must not be the
-    reason a crawl fails.
+    Stores one audit record in the database. Never raises: auditing
+    must not be the reason a crawl fails.
     """
 
     event = {
@@ -61,14 +60,11 @@ def log_event(event):
 
     try:
 
-        os.makedirs(os.path.dirname(AUDIT_PATH), exist_ok=True)
+        datastore.log_event(event)
 
-        with open(AUDIT_PATH, "a", encoding="utf-8") as f:
-            f.write(json.dumps(event) + "\n")
+    except Exception as e:
 
-    except OSError as e:
-
-        print(f"[!] Audit log not written: {e}")
+        print(f"[!] Audit event not stored: {e}")
 
 
 def _retry_after(value):
@@ -104,7 +100,7 @@ class DarkWebLiveCrawler:
     # FETCH PAGE
     # ========================================================
 
-    def fetch_page(self, url):
+    def fetch_page(self, url, params=None):
 
         """
         GETs a page through Tor with retry and backoff.
@@ -132,6 +128,8 @@ class DarkWebLiveCrawler:
                 with self.session.get(
 
                     url,
+
+                    params=params,
 
                     timeout=REQUEST_TIMEOUT,
 
@@ -272,6 +270,57 @@ class DarkWebLiveCrawler:
     # SEARCH SOURCES
     # ========================================================
 
+    def search_targets(self, source, keywords):
+
+        """
+        Pages to fetch for one source: [(shown_url, fetch_url, params,
+        keyword)].
+
+        A source with a "search" block is queried once per keyword:
+
+            "search": {"url": "https://host/search/", "param": "q",
+                       "form_page": "https://host/"}
+
+        form_page (optional) is fetched first and the hidden fields of
+        its search form (anti-bot tokens that change over time) are sent
+        with the query, as a browser would. Without "search" the fixed
+        url is fetched once and filtered by keyword.
+        """
+
+        search = source.get("search")
+
+        if not isinstance(search, dict) or not search.get("url"):
+            return [(source["url"], source["url"], None, None)]
+
+        hidden = {}
+
+        if search.get("form_page"):
+
+            page = self.fetch_page(search["form_page"])
+
+            if page["html"]:
+
+                form = BeautifulSoup(page["html"], "html.parser").find("form")
+
+                for field in (form.find_all("input", type="hidden")
+                              if form else []):
+
+                    if field.get("name"):
+                        hidden[field["name"]] = field.get("value", "")
+
+        param = search.get("param", "q")
+
+        return [
+            (
+                f"{search['url']}?{param}={quote_plus(keyword)}",
+                search["url"],
+                {param: keyword, **hidden},
+                keyword
+            )
+            for keyword in keywords
+        ]
+
+
     def search_sources(
 
         self,
@@ -280,106 +329,104 @@ class DarkWebLiveCrawler:
     ):
 
         """
-        Searches all configured sources for keywords. Every source is
-        audit-logged; a failing source is skipped, never fatal.
+        Searches all configured sources for keywords. Every page is
+        audit-logged; a failing page is skipped, never fatal.
         """
 
         collected_data = []
 
         print("\n[DARK WEB LIVE SEARCH]\n")
 
-        for index, source in enumerate(self.sources):
+        first = True
 
-            if index:
-                time.sleep(random.uniform(*SOURCE_DELAY))
+        for source in self.sources:
 
-            print(f"[SOURCE] {source['name']}")
+            for shown, url, params, keyword in self.search_targets(
 
-            print(f"[URL] {source['url']}")
-
-            self.report["attempted"] += 1
-
-            outcome = self.fetch_page(
-
-                source["url"]
-            )
-
-            audit = {
-
-                "mode": "live",
-
-                "source": source["name"],
-
-                "url": source["url"],
-
-                "category": source["category"],
-
-                "keywords": keywords,
-
-                "http_status": outcome["http_status"],
-
-                "attempts": outcome["attempts"],
-
-                "bytes": outcome["bytes"],
-
-                "error": outcome["error"]
-            }
-
-            if outcome["html"] is None:
-
-                self.report["failed"] += 1
-
-                print(f"[STATUS] Failed ({outcome['error']})\n")
-
-                log_event({**audit, "status": "failed"})
-
-                continue
-
-            self.report["reached"] += 1
-
-            text = self.extract_text(
-
-                outcome["html"]
-            )
-
-            matches = self.keyword_match(
-
-                text,
+                source,
 
                 keywords
-            )
+            ):
 
-            if matches:
+                if not first:
+                    time.sleep(random.uniform(*SOURCE_DELAY))
 
-                self.report["matched"] += 1
+                first = False
 
-                print(
+                print(f"[SOURCE] {source['name']}")
 
-                    f"[MATCHES] "
-                    f"{', '.join(matches)}"
-                )
+                print(f"[URL] {shown}")
 
-                log_event({**audit, "status": "collected", "matches": matches})
+                self.report["attempted"] += 1
 
-                collected_data.append({
+                outcome = self.fetch_page(url, params)
+
+                audit = {
+
+                    "mode": "live",
 
                     "source": source["name"],
 
-                    "url": source["url"],
+                    "url": shown,
 
                     "category": source["category"],
 
-                    "matches": matches,
+                    "keywords": keywords,
 
-                    "content": text[:5000]
-                })
+                    "keyword": keyword,
 
-            else:
+                    "http_status": outcome["http_status"],
 
-                print("[MATCHES] None")
+                    "attempts": outcome["attempts"],
 
-                log_event({**audit, "status": "no_match"})
+                    "bytes": outcome["bytes"],
 
-            print()
+                    "error": outcome["error"]
+                }
+
+                if outcome["html"] is None:
+
+                    self.report["failed"] += 1
+
+                    print(f"[STATUS] Failed ({outcome['error']})\n")
+
+                    log_event({**audit, "status": "failed"})
+
+                    continue
+
+                self.report["reached"] += 1
+
+                text = self.extract_text(outcome["html"])
+
+                matches = self.keyword_match(text, [keyword] if keyword else keywords)
+
+                if matches:
+
+                    self.report["matched"] += 1
+
+                    print(f"[MATCHES] {', '.join(matches)}")
+
+                    log_event({**audit, "status": "collected", "matches": matches})
+
+                    collected_data.append({
+
+                        "source": source["name"],
+
+                        "url": shown,
+
+                        "category": source["category"],
+
+                        "matches": matches,
+
+                        "content": text[:5000]
+                    })
+
+                else:
+
+                    print("[MATCHES] None")
+
+                    log_event({**audit, "status": "no_match"})
+
+                print()
 
         return collected_data

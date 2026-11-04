@@ -1,43 +1,18 @@
 """
 Labelled evaluation dataset builder (FR-8.1).
 
-Builds two independent, reproducible datasets from the public ground
-truth already in datasets/:
-
-- severity.csv  : CVE description  -> NVD CVSS severity (+ CISA KEV flag)
-- killchain.csv : ATT&CK technique -> Cyber Kill Chain stage
-
-Labels come from NVD / CISA / MITRE, never from the rule-based scorer,
-so the baseline comparison (FR-8.4) is on independent ground truth.
-Train/test splits are fixed here so every model is scored on the
-same held-out rows.
-
 Run from the project root:
     python -m engine.evaluation.dataset_builder
 """
 
-import csv
-import gc
-import json
-import os
 import re
 from collections import Counter
 
 from sklearn.model_selection import train_test_split
 
+from engine import datastore
 from engine.datasets.dataset_loader import load_kev_dataset
 
-
-OUTPUT_DIR = "datasets/labelled"
-
-NVD_FILES = [
-    "datasets/cves/raw/nvdcve-2.0-2024.json",
-    "datasets/cves/raw/nvdcve-2.0-2025.json",
-    "datasets/cves/raw/nvdcve-2.0-modified.json",
-    "datasets/cves/raw/nvdcve-2.0-recent.json",
-]
-
-MITRE_FILE = "datasets/mitre/raw/enterprise-attack.json"
 
 SEED = 42
 TEST_SIZE = 0.2
@@ -54,9 +29,6 @@ KILL_CHAIN_STAGES = [
     "Actions on Objectives",
 ]
 
-# ATT&CK tactic -> Lockheed Martin Cyber Kill Chain stage.
-# This table is a documented judgment call (the two models are not
-# 1:1) and is the main labelling assumption: review before reporting.
 TACTIC_TO_STAGE = {
     "reconnaissance": "Reconnaissance",
     "resource-development": "Weaponization",
@@ -75,8 +47,6 @@ TACTIC_TO_STAGE = {
     "impact": "Actions on Objectives",
 }
 
-# VulDB-style sentence ("It has been classified as critical.") leaks a
-# severity word that rarely matches the CVSS label; remove it.
 _LEAK = re.compile(
     r"[^.]*\bclassified as (?:critical|high|medium|low)\b[^.]*\.\s*",
     re.IGNORECASE
@@ -124,21 +94,6 @@ def _split(rows, label_key):
         row["split"] = "test" if i in test else "train"
 
 
-def _write(rows, name, columns):
-
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-    path = os.path.join(OUTPUT_DIR, name)
-
-    with open(path, "w", encoding="utf-8", newline="") as f:
-
-        writer = csv.DictWriter(f, fieldnames=columns)
-        writer.writeheader()
-        writer.writerows(rows)
-
-    return path
-
-
 def build_severity_dataset():
 
     kev_ids = {
@@ -147,43 +102,34 @@ def build_severity_dataset():
 
     records = {}
 
-    # Later files hold fresher records and overwrite earlier ones.
-    for path in NVD_FILES:
+    for item in datastore.nvd_vulnerabilities():
 
-        with open(path, "r", encoding="utf-8") as f:
-            vulnerabilities = json.load(f)["vulnerabilities"]
+        cve = item["cve"]
 
-        for item in vulnerabilities:
+        if cve.get("vulnStatus") == "Rejected":
+            continue
 
-            cve = item["cve"]
+        text = next(
+            (
+                d["value"] for d in cve.get("descriptions", [])
+                if d.get("lang") == "en"
+            ),
+            ""
+        )
 
-            if cve.get("vulnStatus") == "Rejected":
-                continue
+        text = _clean(_LEAK.sub("", text))
 
-            text = next(
-                (
-                    d["value"] for d in cve.get("descriptions", [])
-                    if d.get("lang") == "en"
-                ),
-                ""
-            )
+        severity = _severity(cve.get("metrics", {}))
 
-            text = _clean(_LEAK.sub("", text))
+        if len(text) < 30 or severity is None:
+            continue
 
-            severity = _severity(cve.get("metrics", {}))
-
-            if len(text) < 30 or severity is None:
-                continue
-
-            records[cve["id"]] = {
-                "id": cve["id"],
-                "text": text,
-                "severity": severity,
-                "exploited": int(cve["id"] in kev_ids)
-            }
-
-        del vulnerabilities
-        gc.collect()
+        records[cve["id"]] = {
+            "id": cve["id"],
+            "text": text,
+            "severity": severity,
+            "exploited": int(cve["id"] in kev_ids)
+        }
 
     rows = sorted(records.values(), key=lambda r: r["id"])
 
@@ -194,8 +140,7 @@ def build_severity_dataset():
 
 def build_killchain_dataset():
 
-    with open(MITRE_FILE, "r", encoding="utf-8") as f:
-        objects = json.load(f)["objects"]
+    objects = datastore.mitre_objects()
 
     rows = []
     dropped = 0
@@ -217,7 +162,6 @@ def build_killchain_dataset():
 
         stages = {TACTIC_TO_STAGE[t] for t in tactics if t in TACTIC_TO_STAGE}
 
-        # Keep only techniques whose tactics all map to one stage.
         if len(stages) != 1:
             dropped += 1
             continue
@@ -246,31 +190,15 @@ def main():
 
     severity_rows = build_severity_dataset()
 
-    path = _write(
-        severity_rows,
-        "severity.csv",
-        ["id", "text", "severity", "exploited", "split"]
-    )
+    datastore.save_labelled("severity", severity_rows)
 
-    print(f"[+] {path}: {len(severity_rows)} rows")
-    print(f"    severity : {dict(Counter(r['severity'] for r in severity_rows))}")
-    print(f"    exploited: {sum(r['exploited'] for r in severity_rows)}")
+    print(f"[+] severity: {len(severity_rows)} rows stored in the database")
 
     killchain_rows, dropped = build_killchain_dataset()
 
-    path = _write(
-        killchain_rows,
-        "killchain.csv",
-        ["id", "text", "tactic", "stage", "split"]
-    )
+    datastore.save_labelled("stage", killchain_rows)
 
-    print(f"[+] {path}: {len(killchain_rows)} rows "
-          f"({dropped} multi-stage techniques excluded)")
-
-    counts = Counter(r["stage"] for r in killchain_rows)
-
-    for stage in KILL_CHAIN_STAGES:
-        print(f"    {stage:<22}: {counts[stage]}")
+    print(f"[+] stage: {len(killchain_rows)} rows stored in the database")
 
 
 if __name__ == "__main__":

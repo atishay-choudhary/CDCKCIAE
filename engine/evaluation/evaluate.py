@@ -15,8 +15,6 @@ Run from the project root:
 """
 
 import argparse
-import json
-import os
 from collections import Counter, defaultdict
 
 from sklearn.metrics import (
@@ -27,6 +25,7 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import cross_val_score
 
+from engine import datastore
 from engine.evaluation.dataset_builder import KILL_CHAIN_STAGES
 from engine.extractors.regex_basics import extract_basic
 from engine.intelligence.killchain_mapper import map_kill_chain
@@ -40,7 +39,6 @@ from engine.ml.classifier import (
 )
 
 
-REPORT_PATH = "outputs/evaluation_report.json"
 
 SEVERITY_LABELS = ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
 
@@ -286,12 +284,9 @@ def main():
         full[task] = evaluate_task(task, args.model)
         _print(task, full[task])
 
-    os.makedirs(os.path.dirname(REPORT_PATH), exist_ok=True)
+    datastore.save_report("evaluation", full)
 
-    with open(REPORT_PATH, "w", encoding="utf-8") as f:
-        json.dump(full, f, indent=2)
-
-    print(f"\n[+] Full report (incl. confusion matrices): {REPORT_PATH}")
+    print("\n[+] Full report (incl. confusion matrices) stored in the database")
 
 
 if __name__ == "__main__":

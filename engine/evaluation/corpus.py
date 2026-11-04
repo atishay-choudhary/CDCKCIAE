@@ -1,22 +1,18 @@
 """
 Crawled-document store (FR-1.5 audit trail, FR-8.1 dark-web test set).
 
-Every document the pipelines collect is appended, redacted and
-de-duplicated, to datasets/crawled/documents.jsonl.
+Every document the pipelines collect is stored, redacted and
+de-duplicated, in the database (table corpus_document).
 
 Redaction replaces personal / network identifiers with placeholders of
 the same kind, so downstream extractors still see the same signal
-types (an IP stays an IP) while no real leaked data is kept on disk.
+types (an IP stays an IP) while no real leaked data is stored.
 """
 
-import hashlib
-import json
-import os
 import re
-from datetime import datetime, timezone
 
+from engine import datastore
 
-CORPUS_PATH = "datasets/crawled/documents.jsonl"
 
 _EMAIL = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
 _IPV4 = re.compile(r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b")
@@ -35,28 +31,8 @@ def redact(text):
 
 def save_document(url, text, source_type):
     """
-    source_type: "mock" or "live".
+    Stores the redacted page in the database (corpus_document),
+    de-duplicated by content hash. source_type: "mock" or "live".
     """
 
-    text = redact(text)
-
-    digest = hashlib.sha1(text.encode("utf-8")).hexdigest()
-
-    os.makedirs(os.path.dirname(CORPUS_PATH), exist_ok=True)
-
-    if os.path.exists(CORPUS_PATH):
-
-        with open(CORPUS_PATH, "r", encoding="utf-8") as f:
-
-            if any(json.loads(line)["sha1"] == digest for line in f):
-                return
-
-    with open(CORPUS_PATH, "a", encoding="utf-8") as f:
-
-        f.write(json.dumps({
-            "sha1": digest,
-            "url": url,
-            "source_type": source_type,
-            "collected_at": datetime.now(timezone.utc).isoformat(),
-            "text": text
-        }) + "\n")
+    datastore.save_document(url, redact(text), source_type)

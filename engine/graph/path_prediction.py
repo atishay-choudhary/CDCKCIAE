@@ -14,19 +14,17 @@ paths are less likely. The most-likely path is the shortest path
 under cost = -ln(p). Centrality is computed on the same weighted graph.
 """
 
-import json
 import math
-import os
 from collections import Counter
 from itertools import islice
 
 import networkx as nx
 
+from engine import datastore
 from engine.intelligence.propagation_engine import PROPAGATION_RULES
 
 
-MITRE_FILE = "datasets/mitre/raw/enterprise-attack.json"
-CACHE_PATH = "models/transitions.json"
+CACHE_KEY = "path_transitions"
 
 # ATT&CK tactic -> stage node. The current bundle renamed
 # defense-evasion to "stealth"; both are accepted.
@@ -65,8 +63,10 @@ def load_attack_data():
     - group_stages     : one set of stages per intrusion set
     """
 
-    with open(MITRE_FILE, "r", encoding="utf-8") as f:
-        objects = json.load(f)["objects"]
+    objects = datastore.mitre_objects()
+
+    if not objects:
+        raise FileNotFoundError("ATT&CK data not in the database")
 
     def active(o):
         return not o.get("revoked") and not o.get("x_mitre_deprecated")
@@ -147,27 +147,25 @@ def uniform_transitions():
 
 def get_transitions():
     """
-    Cached learned transitions; learned from the full ATT&CK bundle
-    on first use. Falls back to uniform if the bundle is unavailable.
+    Cached learned transitions (store_cache table); learned from the
+    ATT&CK data in the database on first use. Falls back to uniform if
+    that data has not been loaded.
     """
 
-    if os.path.exists(CACHE_PATH):
+    cached = datastore.cache_get(CACHE_KEY)
 
-        with open(CACHE_PATH, "r", encoding="utf-8") as f:
-            return json.load(f), "learned (ATT&CK groups)"
+    if cached:
+        return cached, "learned (ATT&CK groups)"
 
     try:
         _, groups = load_attack_data()
 
     except FileNotFoundError:
-        return uniform_transitions(), "uniform (ATT&CK bundle not found)"
+        return uniform_transitions(), "uniform (ATT&CK data not loaded)"
 
     transitions = learn_transitions(groups)
 
-    os.makedirs(os.path.dirname(CACHE_PATH), exist_ok=True)
-
-    with open(CACHE_PATH, "w", encoding="utf-8") as f:
-        json.dump(transitions, f, indent=2)
+    datastore.cache_set(CACHE_KEY, transitions)
 
     return transitions, "learned (ATT&CK groups)"
 

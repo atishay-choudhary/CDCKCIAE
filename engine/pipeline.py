@@ -8,7 +8,7 @@ Core Threat Intelligence Pipeline
 
 from engine.crawlers.dark_crawler import DarkWebCrawler
 from engine.crawlers.forum_crawler import ForumCrawler
-from engine.crawlers.source_list import DARK_WEB_SOURCES
+from engine.crawlers.source_list import dark_web_sources
 
 # ============================================================
 # EXTRACTORS
@@ -179,7 +179,7 @@ def run_pipeline():
     # CRAWL SOURCES
     # ========================================================
 
-    for url in DARK_WEB_SOURCES:
+    for url in dark_web_sources():
 
         print(f"[Crawling] {url}")
 

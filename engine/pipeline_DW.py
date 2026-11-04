@@ -152,15 +152,6 @@ def run_darkweb_pipeline(keywords):
     """
 
     # ========================================================
-    # CREATE OUTPUT DIRECTORIES
-    # ========================================================
-
-    os.makedirs(
-        "outputs/darkweb",
-        exist_ok=True
-    )
-
-    # ========================================================
     # INITIALIZE CRAWLER
     # ========================================================
 
@@ -205,19 +196,7 @@ def run_darkweb_pipeline(keywords):
 
     if not collected_data:
 
-        if crawler.report["reached"] == 0:
-
-            print(
-                "\n[!] No dark web source could be reached "
-                f"({crawler.report['failed']} failed)."
-            )
-
-            return {"status": "unreachable"}
-
-        print(
-            "\n[!] Sources were reachable but none matched "
-            "the keywords. Try different keywords."
-        )
+        print("\n[!] No page contained any of the keywords.")
 
         return {"status": "no_matches"}
 
@@ -887,6 +866,8 @@ def run_darkweb_pipeline(keywords):
 
     return {
 
+        "status": "ok",
+
         "signals": results,
 
         "correlations": correlations,
@@ -906,7 +887,6 @@ def run_darkweb_pipeline(keywords):
         "cyber_kill_chain": cyber_kill_chain,
         "path_prediction": path_prediction,
         "cvss_impact": cvss_impact,
-        "status": "ok",
         "artifact_records": artifact_records,
 
         "impact_analysis": impact_analysis,

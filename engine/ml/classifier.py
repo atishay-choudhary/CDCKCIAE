@@ -13,8 +13,7 @@ Train from the project root:
 """
 
 import argparse
-import csv
-import os
+import io
 
 import joblib
 from sklearn.ensemble import RandomForestClassifier
@@ -22,16 +21,15 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 
+from engine import datastore
 
-DATA_DIR = "datasets/labelled"
-MODEL_DIR = "models"
 
 SEED = 42
 
-# task -> (csv file, label column)
+# task -> label name (the data is the labelled_sample table)
 TASKS = {
-    "severity": ("severity.csv", "severity"),
-    "stage": ("killchain.csv", "stage"),
+    "severity": "severity",
+    "stage": "stage",
 }
 
 # FR-3.1: selectable classifier.
@@ -53,29 +51,11 @@ _loaded = {}
 
 def load_split(task):
     """
-    Returns (X_train, y_train, X_test, y_test) using the fixed
-    split column written by the dataset builder.
+    Returns (X_train, y_train, X_test, y_test) from the labelled_sample
+    table, using the fixed split written by the dataset builder.
     """
 
-    filename, label = TASKS[task]
-
-    with open(
-        os.path.join(DATA_DIR, filename),
-        "r",
-        encoding="utf-8",
-        newline=""
-    ) as f:
-        rows = list(csv.DictReader(f))
-
-    train = [r for r in rows if r["split"] == "train"]
-    test = [r for r in rows if r["split"] == "test"]
-
-    return (
-        [r["text"] for r in train],
-        [r[label] for r in train],
-        [r["text"] for r in test],
-        [r[label] for r in test],
-    )
+    return datastore.labelled_split(task)
 
 
 def build_model(model_name="logreg"):
@@ -95,11 +75,6 @@ def build_model(model_name="logreg"):
     ])
 
 
-def model_path(task):
-
-    return os.path.join(MODEL_DIR, f"{task}.joblib")
-
-
 def train(task, model_name="logreg", save=True):
     """
     Fits on the training split and (FR-3.3) persists the pipeline.
@@ -111,8 +86,11 @@ def train(task, model_name="logreg", save=True):
     pipeline.fit(X_train, y_train)
 
     if save:
-        os.makedirs(MODEL_DIR, exist_ok=True)
-        joblib.dump(pipeline, model_path(task))
+        buffer = io.BytesIO()
+        joblib.dump(pipeline, buffer)
+        datastore.save_model(task, model_name, buffer.getvalue(), {
+            "train_rows": len(X_train)
+        })
         _loaded.pop(task, None)
 
     return pipeline
@@ -125,7 +103,12 @@ def predict(task, texts):
     """
 
     if task not in _loaded:
-        _loaded[task] = joblib.load(model_path(task))
+        blob = datastore.load_model(task)
+
+        if blob is None:
+            raise FileNotFoundError(f"no trained {task} model in the database")
+
+        _loaded[task] = joblib.load(io.BytesIO(blob))
 
     pipeline = _loaded[task]
 
@@ -147,4 +130,4 @@ if __name__ == "__main__":
 
     train(args.task, args.model)
 
-    print(f"[+] Saved {model_path(args.task)}")
+    print(f"[+] Saved {args.task} model to the database")

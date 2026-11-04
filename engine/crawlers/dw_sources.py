@@ -1,59 +1,19 @@
 """
 Dark web source registry (FR-1.3).
 
-The built-in list below is the default. To use a broader, documented
-list without editing code, create config/dw_sources.json (git-ignored,
-so addresses stay out of version control):
+The registry is the crawl_source table in the database (kind "live").
+Add or change sources there (python backend/manage.py shell, or the
+dashboard), e.g. one with a search block queried once per keyword:
 
-    [
-      {"name": "...", "url": "http://....onion/", "category": "..."},
-      ...
-    ]
+    name="Ahmia", url="https://ahmia.fi/search/", category="search_engine",
+    search={"url": "https://ahmia.fi/search/", "param": "q",
+            "form_page": "https://ahmia.fi/"}
 
-When that file exists and holds valid entries it replaces the defaults.
 Only list sources you are permitted to observe: collection is passive
 and read-only, and every access is written to the audit log.
 """
 
-import json
-import os
-
-
-CONFIG_PATH = "config/dw_sources.json"
-
-REQUIRED_KEYS = ("name", "url", "category")
-
-
-# ============================================================
-# DARK WEB SOURCES
-# ============================================================
-
-DW_SOURCES = [
-
-    {
-        "name": "Breach Forum Mirror",
-
-        "url": "http://uvfeolw6byawkv4fiawpcarpepr3msh3d3a2nbhx6roghpingf7bjhid.onion/",
-
-        "category": "breach_forum"
-    },
-
-    {
-        "name": "Credential Leak Board",
-
-        "url": "http://6i7tpbu23qnanry473oe4g5ep6zuzxpfj3fzcgraz5sm2zdzkompuvid.onion/",
-
-        "category": "credential_leak"
-    },
-
-    {
-        "name": "Ransomware Discussion Hub",
-
-        "url": "http://vbdioctupuwnk2n2m37f4pjcdtueyvpgxb65sqirkpl6j7sakyp3c2id.onion/",
-
-        "category": "ransomware"
-    }
-]
+from engine import datastore
 
 
 # ============================================================
@@ -63,49 +23,18 @@ DW_SOURCES = [
 def get_all_sources():
 
     """
-    Returns the configured sources: config file if present and valid,
-    otherwise the built-in defaults.
+    Returns the enabled live sources from the database.
     """
 
-    if not os.path.exists(CONFIG_PATH):
-        return DW_SOURCES
+    sources = datastore.crawl_sources("live")
 
-    try:
-
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            configured = json.load(f)
-
-    except (OSError, ValueError) as e:
-
-        print(f"[!] {CONFIG_PATH} unreadable ({e}); using built-in sources.")
-
-        return DW_SOURCES
-
-    valid = [
-
-        source for source in configured
-
-        if isinstance(source, dict)
-        and all(source.get(k) for k in REQUIRED_KEYS)
-    ] if isinstance(configured, list) else []
-
-    skipped = (len(configured) if isinstance(configured, list) else 0) - len(valid)
-
-    if skipped:
-
+    if not sources:
         print(
-            f"[!] {CONFIG_PATH}: {skipped} entr"
-            f"{'y' if skipped == 1 else 'ies'} skipped "
-            f"(need {', '.join(REQUIRED_KEYS)})."
+            "[!] No live sources in the database. Run "
+            "python backend/manage.py sync_reference to add the default."
         )
 
-    if not valid:
-
-        print(f"[!] {CONFIG_PATH} has no valid sources; using built-in sources.")
-
-        return DW_SOURCES
-
-    return valid
+    return sources
 
 
 # ============================================================

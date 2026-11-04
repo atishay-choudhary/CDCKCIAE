@@ -11,20 +11,17 @@ Run from the project root:
     python -m engine.evaluation.cvss_validation
 """
 
-import json
-
+from engine import datastore
 from engine.intelligence.cvss_impact import (
-    NVD_RECENT,
     base_score,
     environmental_score,
     parse_vector
 )
 
 
-def main(path=NVD_RECENT):
+def main():
 
-    with open(path, "r", encoding="utf-8") as f:
-        vulnerabilities = json.load(f)["vulnerabilities"]
+    vulnerabilities = datastore.nvd_vulnerabilities(recent_only=True)
 
     checked = matched = unchanged = env_equal = 0
     mismatches = []
