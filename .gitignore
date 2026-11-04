@@ -20,6 +20,9 @@ datasets/cisa/raw/
 datasets/cves/raw/
 datasets/mitre/raw/
 
+# Databse
+backend/db.sqlite3
+
 # Secrets/configs
 .env
 .env.*
