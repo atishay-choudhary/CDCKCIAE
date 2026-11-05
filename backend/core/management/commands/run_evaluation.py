@@ -11,7 +11,7 @@ class Command(BaseCommand):
     )
 
     def add_arguments(self, parser):
-        parser.add_argument("--model", default="logreg", choices=["logreg", "rf"])
+        parser.add_argument("--model", default="logreg", choices=["logreg", "rf", "svm", "xgboost"])
 
     def handle(self, *args, **options):
 

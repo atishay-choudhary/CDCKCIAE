@@ -9,7 +9,10 @@ propagation engine's highest-probability path, on two ground truths:
 2. the historical_attack table (techniques ->
    stages), entry = the incident's earliest stage
 
-Metrics (ATT&CK does not record temporal order, so order is not scored):
+Metrics (ATT&CK does not record temporal order, so order is not scored).
+The set-overlap scores below favour the baseline, which always returns the
+deepest path; the model returns the most LIKELY path, which is shorter. The
+edge-prediction score at the end measures what the model actually learns.
 - stage-set precision / recall / F1 of the path's stages after the entry
   against the stages the real actor used. Favors long paths (an actor
   uses ~10 stages), so it penalises a likelihood-maximising path.
@@ -37,6 +40,7 @@ from engine.graph.path_prediction import (
     most_likely_paths
 )
 from engine.intelligence.propagation_engine import (
+    PROPAGATION_RULES,
     calculate_probability,
     traverse_attack_paths
 )
@@ -166,6 +170,52 @@ def calibration(groups, folds=5):
     }
 
 
+def edge_prediction(groups, folds=5):
+    """
+    What the learned probabilities actually predict: for each real
+    intrusion set and each stage A it used, which successors B it also
+    used. Scored with k-fold cross-validation (no leakage) against the
+    uniform 1/len(successors) probabilities, pooled over all edges.
+    AUC: higher is better. Brier score: lower is better.
+    """
+
+    from sklearn.metrics import brier_score_loss, roc_auc_score
+
+    chunks = [groups[i::folds] for i in range(folds)]
+
+    truth, learned, uniform = [], [], []
+
+    for i, held_out in enumerate(chunks):
+
+        transitions = learn_transitions([
+            g for j, chunk in enumerate(chunks) if j != i for g in chunk
+        ])
+
+        for stages in held_out:
+
+            for a, successors in PROPAGATION_RULES.items():
+
+                if a not in stages:
+                    continue
+
+                for b in successors:
+                    truth.append(int(b in stages))
+                    learned.append(transitions[f"{a}->{b}"])
+                    uniform.append(1 / len(successors))
+
+    return {
+        "edges": len(truth),
+        "model": {
+            "auc": round(roc_auc_score(truth, learned), 3),
+            "brier": round(brier_score_loss(truth, learned), 3)
+        },
+        "baseline": {
+            "auc": round(roc_auc_score(truth, uniform), 3),
+            "brier": round(brier_score_loss(truth, uniform), 3)
+        }
+    }
+
+
 def group_cases(groups):
 
     return [
@@ -259,10 +309,23 @@ def run():
     print(f"baseline  {calibration_result['baseline']:.3f}")
     print(f"model     {calibration_result['model']:.3f}")
 
+    edge_result = edge_prediction(groups)
+
+    print(
+        f"\n=== Edge prediction ({edge_result['edges']} transitions, "
+        f"5-fold) ==="
+    )
+    for name in ("baseline", "model"):
+        print(
+            f"{name:<9} AUC {edge_result[name]['auc']:.3f}  "
+            f"Brier {edge_result[name]['brier']:.3f}"
+        )
+
     return {
         "held_out_groups": group_result,
         "incidents": incident_result,
-        "calibration": calibration_result
+        "calibration": calibration_result,
+        "edge_prediction": edge_result
     }
 
 

@@ -25,6 +25,8 @@ Tables (db_table) and columns are the documented ones:
 Artifact <-> CVE_REFERENCE is many-to-many (junction table
 artifact_cve_reference). Primary keys are strings, as in the diagram.
 
+crawl_job also has an extension column, owner_id (the user who started it).
+
 The only table that is NOT in the design is job_summary (one row per
 crawl job). The documented CRAWL_JOB has no place for the keywords, the
 run message, the threat level or the job-level kill-chain summary, so
@@ -50,6 +52,7 @@ documented tables:
 
 import uuid
 
+from django.conf import settings
 from django.db import models
 
 
@@ -105,6 +108,11 @@ class CrawlJob(models.Model):
     status = models.CharField(max_length=16, choices=STATUSES, default="queued")
     started_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
+    # extension column: who started the job (dashboard users see only theirs)
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="jobs", db_column="owner_id"
+    )
 
     class Meta:
         db_table = "crawl_job"
@@ -163,6 +171,9 @@ class Artifact(models.Model):
     extracted_entities = models.JSONField(default=dict)   # regex + NER
     collected_at = models.DateTimeField(auto_now_add=True)
     source_type = models.CharField(max_length=32)
+    # Extension column (the design's NFR asks for an index by severity):
+    # the model's severity for this artifact, copied from the risk score.
+    severity = models.CharField(max_length=16, null=True, blank=True)
 
     cves = models.ManyToManyField(
         CveReference, related_name="artifacts", blank=True,
@@ -176,6 +187,7 @@ class Artifact(models.Model):
             models.Index(fields=["source"]),
             models.Index(fields=["job", "collected_at"]),
             models.Index(fields=["collected_at"]),
+            models.Index(fields=["severity"]),
         ]
 
 

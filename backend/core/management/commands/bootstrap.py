@@ -15,7 +15,7 @@ class Command(BaseCommand):
         parser.add_argument("--nvd-years", type=int, default=2)
         parser.add_argument("--from-files", action="store_true")
         parser.add_argument("--root", default="datasets")
-        parser.add_argument("--model", default="logreg", choices=["logreg", "rf"])
+        parser.add_argument("--model", default="logreg", choices=["logreg", "rf", "svm", "xgboost"])
 
     def handle(self, *args, **options):
 

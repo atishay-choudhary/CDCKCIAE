@@ -101,9 +101,12 @@ def label(sample_id, pairs):
     print(f"[+] {sample_id}: {values}")
 
 
-def run_score():
+def score_labelled():
+    """{task: report} for the labelled snippets (tasks with none are left out)."""
 
     rows = datastore.annotation_rows(TASK)
+
+    reports = {}
 
     for task in ("severity", "stage"):
 
@@ -113,15 +116,9 @@ def run_score():
             value = str(row.get(task, "")).strip()
             row[task] = value.upper() if task == "severity" else value
 
-        invalid = {r[task] for r in rows if r[task] and r[task] not in labels}
-
-        if invalid:
-            print(f"[!] {task}: ignoring unrecognised labels {sorted(invalid)}")
-
         subset = [r for r in rows if r[task] in labels]
 
         if not subset:
-            print(f"[!] {task}: no labelled rows, skipped")
             continue
 
         texts = [r["text"] for r in subset]
@@ -129,7 +126,7 @@ def run_score():
 
         tuned = tuned_baseline(task)
 
-        _print(task, {
+        reports[task] = {
             "model": "saved",
             "test_rows": len(subset),
             "classifier": score(
@@ -147,7 +144,20 @@ def run_score():
                 [tuned(t) for t in texts],
                 labels
             ),
-        })
+        }
+
+    return reports
+
+
+def run_score():
+
+    reports = score_labelled()
+
+    if not reports:
+        print("[!] no labelled rows yet")
+
+    for task, report in reports.items():
+        _print(task, report)
 
 
 if __name__ == "__main__":

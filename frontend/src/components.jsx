@@ -2,7 +2,7 @@
 // rendered as React text children, which are escaped: no HTML from
 // collected content is ever interpreted.
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 export const STAGES = [
   "Reconnaissance",
@@ -134,7 +134,7 @@ export function CaseHeader({ job, actions }) {
         <div><dd>{fmt(job.impact_score, 1)}</dd><dt>Impact, CVSS</dt></div>
         <div><dd>{job.artifact_count ?? 0}</dd><dt>Artifacts</dt></div>
         <div><dd>{job.stats?.signals ?? "n/a"}</dd><dt>Signals</dt></div>
-        <div><dd>{job.business_risk?.score ?? "n/a"}</dd><dt>Business risk, older heuristic</dt></div>
+        <div><dd>{job.business_risk?.score ?? "n/a"}<small>/{job.business_risk?.max_score ?? 25}</small></dd><dt>Business risk (FAIR)</dt></div>
         <div><dd>{job.stats?.threat_level_ml || "n/a"}</dd><dt>Model's level, not used for the verdict</dt></div>
       </dl>
     </div>
@@ -213,7 +213,31 @@ export function KillChain({ job, artifact, mapping }) {
 
 // ---------------------------------------------------------------- risk
 
-export function Risk({ risk }) {
+function FairTable({ title, model, score, level }) {
+  if (!model?.factors) return null;
+  return (
+    <>
+      <h3>{title}: {model[score]}/{model.max_score}, {model[level]}</h3>
+      <p className="muted small">{model.model}. Each factor is a level from 1 to 5 taken from the evidence shown.</p>
+      <div className="scroll">
+        <table>
+          <thead><tr><th>Factor</th><th>Level</th><th>Basis</th></tr></thead>
+          <tbody>
+            {Object.entries(model.factors).map(([name, f]) => (
+              <tr key={name}>
+                <td>{name.replaceAll("_", " ")}</td>
+                <td>{f.level}/5</td>
+                <td className="small">{f.basis}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+export function Risk({ risk, fair, exposure }) {
   if (!risk || risk.impact_score == null)
     return <Muted>No risk score for this job.</Muted>;
   const factors = risk.contributing_factors?.factors || {};
@@ -243,6 +267,8 @@ export function Risk({ risk }) {
           2
         )}
       </pre>
+      <FairTable title="Business risk" model={fair} score="score" level="risk_level" />
+      <FairTable title="Enterprise exposure" model={exposure} score="exposure_score" level="exposure_level" />
       {scenarios.length > 0 && (
         <div className="scroll">
           <table>
@@ -380,12 +406,18 @@ export function AttackGraph({ graph }) {
 
 // ----------------------------------------------------------- artifacts
 
-export function Artifacts({ list, filters, setFilters, selected, onSelect, detail }) {
+export function Artifacts({ list, filters, setFilters, selected, onSelect, detail, onExport }) {
   return (
     <>
       <div className="row filters">
         <input type="text" placeholder="filter by source" value={filters.source}
                onChange={(e) => setFilters({ ...filters, source: e.target.value })} />
+        <select value={filters.severity || ""}
+                onChange={(e) => setFilters({ ...filters, severity: e.target.value })}
+                aria-label="Model severity">
+          <option value="">any severity</option>
+          {["LOW", "MEDIUM", "HIGH", "CRITICAL"].map((s) => <option key={s}>{s}</option>)}
+        </select>
         <select value={filters.stage}
                 onChange={(e) => setFilters({ ...filters, stage: e.target.value })}
                 aria-label="Kill-chain stage">
@@ -424,14 +456,15 @@ export function Artifacts({ list, filters, setFilters, selected, onSelect, detai
           </table>
         </div>
       )}
-      {detail && <ArtifactDetail a={detail} />}
+      {detail && <ArtifactDetail a={detail} onExport={onExport} />}
     </>
   );
 }
 
-function ArtifactDetail({ a }) {
+function ArtifactDetail({ a, onExport }) {
   return (
     <>
+      <button type="button" className="quiet" onClick={onExport}>Export PDF for this artifact</button>
       <h3>Entities (regex + NER, merged)</h3>
       <pre>{JSON.stringify(a.entities, null, 2)}</pre>
       {a.extraction && (
@@ -566,6 +599,24 @@ export function Evaluation({ report, onRun }) {
         <p className="muted">
           Calibration error (lower is better): baseline {fmt(p.calibration?.baseline, 3)}, model {fmt(p.calibration?.model, 3)}.
         </p>
+        {p.edge_prediction && (
+          <>
+            <h3>Which transitions real attackers use</h3>
+            <p className="muted">
+              {p.edge_prediction.edges} stage-to-stage transitions, 5-fold cross-validated. The set-overlap
+              scores above favour the baseline because it always returns the deepest path; this one tests
+              the learned probabilities directly.
+            </p>
+            <table>
+              <thead><tr><th>System</th><th>AUC (higher is better)</th><th>Brier (lower is better)</th></tr></thead>
+              <tbody>
+                {[["Baseline (uniform)", p.edge_prediction.baseline], ["Learned from ATT&CK", p.edge_prediction.model]].map(([n, m]) => (
+                  <tr key={n}><td>{n}</td><td>{fmt(m.auc, 3)}</td><td>{fmt(m.brier, 3)}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
       </div>
     );
   }
@@ -574,4 +625,181 @@ export function Evaluation({ report, onRun }) {
     parts.push(<div key="ner"><h3>NER against regex</h3><pre>{JSON.stringify(report.ner.merged || report.ner, null, 2)}</pre></div>);
 
   return <>{head}{parts}</>;
+}
+
+// ---------------------------------------------------------- annotation
+
+export function Annotate({ api }) {
+  const [data, setData] = useState(null);
+  const [index, setIndex] = useState(0);
+  const [scores, setScores] = useState(null);
+  const [scoring, setScoring] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    api.get("/annotation/samples").then(setData).catch((e) => setError(e.message));
+  }, [api]);
+
+  if (error) return <p className="error" role="alert">{error}</p>;
+  if (!data) return <Muted>Loading…</Muted>;
+  if (!data.samples.length)
+    return (
+      <Muted>
+        No snippets sampled yet. Run <code>python -m engine.evaluation.darkweb_validation export</code> once
+        after you have collected some live pages.
+      </Muted>
+    );
+
+  const sample = data.samples[index];
+  const done = data.samples.filter((s) => s.severity).length;
+
+  const set = async (field, value) => {
+    setError("");
+    try {
+      await api.post("/annotation/label", { id: sample.id, [field]: value });
+      setData((d) => ({
+        ...d,
+        samples: d.samples.map((s) => (s.id === sample.id ? { ...s, [field]: value } : s)),
+      }));
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  const nextOpen = () => {
+    const order = [...data.samples.keys()];
+    const after = order.slice(index + 1).concat(order.slice(0, index));
+    const open = after.find((i) => !data.samples[i].severity);
+    setIndex(open ?? Math.min(index + 1, data.samples.length - 1));
+  };
+
+  const runScore = () => {
+    setScoring(true);
+    api.get("/annotation/score")
+      .then((r) => setScores(r.reports))
+      .catch((e) => setError(e.message))
+      .finally(() => setScoring(false));
+  };
+
+  return (
+    <div className="annotate">
+      <div className="annotate-main">
+        <p className="muted">
+          Snippet {index + 1} of {data.samples.length}. {done} have a severity label. Read it, then set what
+          you would assign by hand, without looking at what the system says.
+        </p>
+        <blockquote className="snippet">{sample.text}</blockquote>
+
+        <h3>Severity</h3>
+        <div className="choices">
+          {data.severity_labels.map((l) => (
+            <button key={l} type="button"
+              className={`choice t-${l} ${sample.severity === l ? "on" : ""}`}
+              onClick={() => set("severity", l)}>{l}</button>
+          ))}
+        </div>
+
+        <h3>Kill-chain stage</h3>
+        <div className="choices">
+          {data.stage_labels.map((l) => (
+            <button key={l} type="button"
+              className={`choice ${sample.stage === l ? "on" : ""}`}
+              onClick={() => set("stage", l)}>{l}</button>
+          ))}
+          <button type="button" className={`choice ${sample.stage === "" ? "on" : ""}`}
+            onClick={() => set("stage", "")}>No stage applies</button>
+        </div>
+
+        <div className="row nav">
+          <button type="button" className="quiet" disabled={index === 0}
+            onClick={() => setIndex(index - 1)}>Previous</button>
+          <button type="button" onClick={nextOpen}>Next unlabelled</button>
+        </div>
+      </div>
+
+      <div className="annotate-side">
+        <h3>Progress</h3>
+        <div className="dots" role="list">
+          {data.samples.map((s, i) => (
+            <button key={s.id} type="button" role="listitem" aria-label={`Snippet ${i + 1}`}
+              className={`dot-btn ${s.severity ? "set" : ""} ${i === index ? "cur" : ""}`}
+              onClick={() => setIndex(i)} />
+          ))}
+        </div>
+
+        <h3>Score the models</h3>
+        <p className="muted small">
+          Compares the trained classifier and both rule-based baselines with your labels. Below about
+          30 labelled snippets the numbers are not reliable.
+        </p>
+        <button type="button" className="quiet" disabled={done === 0 || scoring} onClick={runScore}>
+          {scoring ? "Scoring…" : "Score now"}
+        </button>
+
+        {scores && Object.keys(scores).length === 0 && <Muted>Nothing labelled yet.</Muted>}
+        {scores && Object.entries(scores).map(([task, t]) => (
+          <div key={task}>
+            <h3>{task === "severity" ? "Severity" : "Stage"}, {t.test_rows} labelled</h3>
+            <table>
+              <thead><tr><th>System</th><th>Accuracy</th><th>Macro-F1</th></tr></thead>
+              <tbody>
+                {[["Rule-based", t.baseline], ["Tuned baseline", t.baseline_tuned], ["Trained", t.classifier]].map(([n, m]) => (
+                  <tr key={n}><td>{n}</td><td>{fmt(m?.accuracy, 3)}</td><td>{fmt(m?.macro_f1, 3)}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- sign in
+
+export function Login({ onSubmit, onRegister, signupAllowed, onToken }) {
+  const [creating, setCreating] = useState(false);
+  const [user, setUser] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setError("");
+    try {
+      await (creating ? onRegister : onSubmit)(user, password);
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  return (
+    <form className="login" onSubmit={submit}>
+      <h1>CDKCIAE</h1>
+      <p className="muted small">
+        {creating ? "Create an account to run and keep your own collections." : "Sign in to view your collections and reports."}
+      </p>
+      <label>User name
+        <input type="text" value={user} autoComplete="username"
+               onChange={(e) => setUser(e.target.value)} required />
+      </label>
+      <label>Password
+        <input type="password" value={password} autoComplete={creating ? "new-password" : "current-password"}
+               onChange={(e) => setPassword(e.target.value)} required />
+      </label>
+      {creating && <p className="muted small">User name: 3-30 letters, digits, . _ - . Password: at least 8 characters, not a common one.</p>}
+      {error && <div className="banner bad">{error}</div>}
+      <button type="submit">{creating ? "Create account" : "Sign in"}</button>
+      {signupAllowed && (
+        <button type="button" className="quiet"
+          onClick={() => { setCreating(!creating); setError(""); }}>
+          {creating ? "I already have an account" : "Create an account"}
+        </button>
+      )}
+      <button type="button" className="quiet"
+        onClick={() => { const t = window.prompt("API token (CDKCIAE_API_TOKEN):"); if (t) onToken(t); }}>
+        Use an API token instead
+      </button>
+    </form>
+  );
 }

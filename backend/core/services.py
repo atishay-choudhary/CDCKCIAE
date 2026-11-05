@@ -50,9 +50,9 @@ def _plain(value):
 # JOB LIFECYCLE
 # ============================================================
 
-def start_job(mode, keywords, allow_fallback=True):
+def start_job(mode, keywords, allow_fallback=True, owner=None):
 
-    job = CrawlJob.objects.create(source=mode)
+    job = CrawlJob.objects.create(source=mode, owner=owner)
 
     JobSummary.objects.create(
         job=job, keywords=keywords, allow_fallback=allow_fallback
@@ -359,6 +359,38 @@ def _page_text(url):
     return doc.text[:20000] if doc else ""
 
 
+KILL_CHAIN_ORDER = [
+    "Reconnaissance", "Weaponization", "Delivery", "Exploitation",
+    "Installation", "Command and Control", "Actions on Objectives",
+]
+
+
+def _ordered_stages(chain):
+    """Observed kill-chain stages in kill-chain order."""
+
+    found = {s["stage"] for s in chain.get("stages", [])}
+
+    return [s for s in KILL_CHAIN_ORDER if s in found]
+
+
+def _executive_summary(output, cvss, chain):
+    """A factual two-sentence summary for the PDF."""
+
+    stages = _ordered_stages(chain)
+
+    seen = (
+        "Kill-chain stages observed: " + ", ".join(stages) + "."
+        if stages else "No kill-chain stage could be assigned."
+    )
+
+    return (
+        f"The collection produced {len(output['signals'])} signals and an "
+        f"overall threat level of {output['threat_level']}. {seen} "
+        f"The CVSS v3.1 environmental impact score is "
+        f"{cvss['impact_score']:.1f} out of 10 ({cvss['criticality']})."
+    )
+
+
 def _persist(job, summary, output):
 
     records = output["artifact_records"]
@@ -378,6 +410,7 @@ def _persist(job, summary, output):
             job=job,
             source=record["source"],
             source_type=record["source_type"],
+            severity=document.get("severity") or None,
             raw_text=_page_text(record["source"]),
             extracted_entities={
                 **_plain(record["entities"]),
@@ -451,11 +484,13 @@ def _persist(job, summary, output):
     }
     summary.report_data = _plain({
         "threat_level": output["threat_level"],
-        "kill_chain_stages": output.get("kill_chain", []),
+        "kill_chain_stages": _ordered_stages(chain),
+        "executive_summary": _executive_summary(output, cvss, chain),
         "signals": output["signals"],
         "important_terms": output.get("important_terms", []),
         "enriched_iocs": output.get("enriched_iocs", []),
         "impact_analysis": output.get("impact_analysis", {}),
+        "predicted_paths": output.get("path_prediction", {}),
         "propagation_summary": output.get("propagation_summary", []),
         "consequence_summary": output.get("consequence_summary", []),
         "business_risk": output["business_risk"],
@@ -570,6 +605,78 @@ def tor_status():
 # ============================================================
 # PDF EXPORT (FR-9.5)
 # ============================================================
+
+def _artifact_report_data(artifact):
+    """Report data for one artifact (UC-8); risk figures stay job-level."""
+
+    from engine.evaluation.corpus import mask_email
+
+    job_data = dict(artifact.job.summary.report_data or {})
+
+    if not job_data:
+        raise ValueError("this job has no results to report")
+
+    ml = (artifact.risk_scores.first().contributing_factors or {}).get(
+        "artifact_ml", {}
+    ) if artifact.risk_scores.exists() else {}
+
+    stages = [m.stage for m in artifact.kill_chain.all()]
+
+    signals = [
+        {**s, "value": mask_email(str(s.get("value", "")))}
+        for s in job_data.get("signals", [])
+        if s.get("source") == artifact.source
+    ]
+
+    counts = {
+        kind: len(values)
+        for kind, values in artifact.extracted_entities.items()
+        if not kind.startswith("_") and values
+    }
+
+    found = ", ".join(f"{n} {k}" for k, n in counts.items()) or "no entities"
+
+    summary = (
+        f"Artifact {artifact.source} ({artifact.source_type}), collected "
+        f"{artifact.collected_at:%Y-%m-%d %H:%M}. Model severity: "
+        f"{artifact.severity or 'not assigned'}"
+        + (f" (confidence {ml['confidence']:.2f})" if ml.get("confidence") else "")
+        + f". Kill-chain stage: {', '.join(stages) or 'not assigned'}. "
+        f"Extracted {found}; {len(signals)} signals. Impact and risk "
+        f"figures below describe the whole collection, not this artifact alone."
+    )
+
+    return {
+        "executive_summary": summary,
+        "threat_level": artifact.severity or "UNKNOWN",
+        "kill_chain_stages": stages,
+        "signals": signals,
+        "impact_analysis": job_data.get("impact_analysis", {}),
+        "business_risk": job_data.get("business_risk", {}),
+        "enterprise_exposure": job_data.get("enterprise_exposure", {}),
+    }
+
+
+def export_artifact_pdf(artifact):
+    """PDF bytes for a single artifact, stored with its job's files."""
+
+    from engine.reports.report_generator import generate_pdf_report
+
+    data = _artifact_report_data(artifact)
+
+    buffer = io.BytesIO()
+
+    generate_pdf_report(data, output=buffer)
+
+    pdf = buffer.getvalue()
+
+    store = datastore.get()
+    store.current_job = artifact.job
+    store.save_file("pdf", f"artifact_{artifact.id}.pdf", pdf)
+    store.current_job = None
+
+    return pdf
+
 
 def export_pdf(job):
     """PDF bytes for a finished job, from the stored report data."""

@@ -5,6 +5,7 @@ Jobs run synchronously here (run_job); no Tor or network is needed.
 """
 
 import builtins
+import io
 import json
 import os
 import re
@@ -424,3 +425,393 @@ class PersistWithModelOutputTests(DataTestCase):
         self.assertEqual(listing["total"], len(records))
 
         self.assertEqual(listing["artifacts"][0]["ml_severity"], "HIGH")
+
+
+class AnnotationTests(TestCase):
+
+    def setUp(self):
+
+        from engine import datastore
+
+        datastore.annotation_replace("darkweb", [
+            {"id": "dw-001", "text": "selling remote code execution exploit",
+             "source": "https://example.invalid/x", "source_type": "live"},
+        ])
+
+    def test_samples_hide_the_source_url(self):
+
+        body = self.client.get("/annotation/samples").json()
+
+        self.assertEqual(len(body["samples"]), 1)
+
+        self.assertNotIn("source", body["samples"][0])
+
+    def test_label_and_validation(self):
+
+        ok = post(self.client, "/annotation/label",
+                  {"id": "dw-001", "severity": "HIGH", "stage": "Delivery"})
+
+        self.assertEqual(ok.status_code, 200)
+
+        sample = self.client.get("/annotation/samples").json()["samples"][0]
+
+        self.assertEqual((sample["severity"], sample["stage"]), ("HIGH", "Delivery"))
+
+        bad = post(self.client, "/annotation/label",
+                   {"id": "dw-001", "severity": "SEVERE"})
+
+        self.assertEqual(bad.status_code, 400)
+
+        missing = post(self.client, "/annotation/label",
+                       {"id": "dw-999", "severity": "LOW"})
+
+        self.assertEqual(missing.status_code, 404)
+
+    def test_score_without_labels_is_empty(self):
+
+        self.assertEqual(self.client.get("/annotation/score").json(), {"reports": {}})
+
+
+class FairRiskTests(TestCase):
+    """FR-6.2: business risk and exposure are traceable FAIR factors."""
+
+    def test_factors_and_range(self):
+        from engine.intelligence.fair_risk import assess_business_risk
+
+        signals = [{"subtype": "sale"}, {"subtype": "exploit"}] * 4
+        consequences = [{"severity": "HIGH", "compliance_effects": ["GDPR exposure"]}]
+        cvss = {"scenarios": [{"environmental_score": 7.2}]}
+        out = assess_business_risk(signals, consequences, cvss, [{"kev": True}])
+
+        self.assertEqual(out["factors"]["threat_event_frequency"]["level"], 4)
+        self.assertEqual(out["factors"]["vulnerability"]["level"], 5)
+        self.assertEqual(out["factors"]["loss_magnitude"]["level"], 4)
+        self.assertEqual(out["score"], 20)
+        self.assertEqual(out["risk_level"], "CRITICAL")
+        self.assertTrue(1 <= out["score"] <= out["max_score"])
+
+    def test_empty_input_is_lowest(self):
+        from engine.intelligence.fair_risk import assess_business_risk, assess_exposure
+
+        out = assess_business_risk([], [], {}, [])
+        self.assertEqual((out["score"], out["risk_level"]), (1, "LOW"))
+        self.assertEqual(assess_exposure([])["exposure_level"], "LOW")
+
+    def test_exposure_uses_asset_value_and_breadth(self):
+        from engine.intelligence.fair_risk import assess_exposure
+
+        assets = [
+            {"criticality": "CRITICAL", "asset_type": "ip", "asset_role": "gateway"},
+            {"criticality": "LOW", "asset_type": "email", "asset_role": "user"},
+        ]
+        out = assess_exposure(assets)
+        self.assertEqual(out["factors"]["asset_value"]["level"], 5)
+        self.assertEqual(out["exposure_score"], 10)
+        self.assertEqual(out["exposure_level"], "HIGH")
+
+
+class SeverityColumnTests(DataTestCase):
+    """NFR: artifacts are indexed and filterable by severity."""
+
+    def test_severity_saved_and_filterable(self):
+
+        from core.models import Artifact
+        from engine.pipeline import run_pipeline
+
+        output = run_pipeline()
+        records = output["artifact_records"]
+        output["threat_assessment"]["documents"] = [
+            {"severity": "HIGH", "severity_confidence": 0.8}
+        ] * len(records)
+
+        job = make_job("mock")
+
+        with mock.patch("core.services._collect",
+                        return_value=(output, "mock", "results", "")):
+            services.run_job(job.job_id)
+
+        self.assertEqual(set(job.artifacts.values_list("severity", flat=True)), {"HIGH"})
+        self.assertIn(["severity"], [i.fields for i in Artifact._meta.indexes])
+
+        hit = self.client.get(f"/artifacts?job={job.job_id}&severity=HIGH").json()
+        miss = self.client.get(f"/artifacts?job={job.job_id}&severity=LOW").json()
+        self.assertEqual((hit["total"], miss["total"]), (len(records), 0))
+
+
+class ArtifactPdfTests(DataTestCase):
+    """UC-8: a report for one selected artifact."""
+
+    def test_artifact_pdf_and_errors(self):
+
+        job = make_job("mock")
+        services.run_job(job.job_id)
+        artifact = job.artifacts.first()
+
+        reply = self.client.post(
+            "/reports/export", json.dumps({"artifact_id": artifact.id}),
+            content_type="application/json",
+        )
+        self.assertEqual(reply.status_code, 200)
+        self.assertTrue(reply.content.startswith(b"%PDF"))
+        self.assertIn(artifact.id, reply["Content-Disposition"])
+
+        missing = self.client.post(
+            "/reports/export", json.dumps({"artifact_id": "nope"}),
+            content_type="application/json",
+        )
+        self.assertEqual(missing.status_code, 404)
+
+
+@override_settings(REQUIRE_LOGIN=True)
+class LoginTests(TestCase):
+    """Use case "Authenticate": user sessions next to the bearer token."""
+
+    H = {"HTTP_X_REQUESTED_WITH": "cdkciae"}
+
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        from django.core.cache import cache
+
+        cache.clear()
+        get_user_model().objects.create_user("analyst", password="s3cret-pass")
+
+    def login(self, password="s3cret-pass"):
+        return self.client.post(
+            "/auth/login", json.dumps({"username": "analyst", "password": password}),
+            content_type="application/json", **self.H,
+        )
+
+    def test_blocked_until_signed_in(self):
+        self.assertEqual(self.client.get("/crawl/jobs").status_code, 401)
+        self.assertTrue(self.client.get("/auth/me").json()["login_required"])
+
+        self.assertEqual(self.login().status_code, 200)
+        self.assertEqual(self.client.get("/crawl/jobs").status_code, 200)
+        self.assertEqual(self.client.get("/auth/me").json()["username"], "analyst")
+
+    def test_wrong_password_and_throttle(self):
+        for _ in range(5):
+            self.assertEqual(self.login("bad").status_code, 401)
+
+        self.assertEqual(self.login("bad").status_code, 429)
+        self.assertEqual(self.login().status_code, 429)
+
+    def test_session_post_needs_custom_header(self):
+        self.login()
+        body = json.dumps({"mode": "mock", "keywords": []})
+
+        forged = self.client.post("/crawl/start", body, content_type="application/json")
+        self.assertEqual(forged.status_code, 403)
+
+        text = self.client.post("/crawl/start", body, content_type="text/plain", **self.H)
+        self.assertEqual(text.status_code, 415)
+
+    def test_logout(self):
+        self.login()
+        out = self.client.post("/auth/logout", "{}", content_type="application/json", **self.H)
+        self.assertEqual(out.status_code, 200)
+        self.assertEqual(self.client.get("/crawl/jobs").status_code, 401)
+
+    def test_login_needs_header_and_json(self):
+        plain = self.client.post("/auth/login", "{}", content_type="application/json")
+        self.assertEqual(plain.status_code, 403)
+
+    @override_settings(API_TOKEN="tok")
+    def test_bearer_token_still_works(self):
+        ok = self.client.get("/crawl/jobs", HTTP_AUTHORIZATION="Bearer tok")
+        self.assertEqual(ok.status_code, 200)
+        self.assertEqual(self.client.get("/crawl/jobs").status_code, 401)
+
+
+class ImportSourcesTests(TestCase):
+    """FR-1.3: a documented source list can be loaded and validated."""
+
+    def run_import(self, entries, *flags):
+        import tempfile
+        from django.core.management import call_command
+
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
+            json.dump(entries, f)
+
+        try:
+            call_command("import_sources", f.name, *flags, stdout=io.StringIO())
+        finally:
+            os.unlink(f.name)
+
+    def test_import_update_and_disable(self):
+        from core.models import CrawlSource
+
+        self.run_import([
+            {"name": "A", "url": "http://a.example/", "category": "forum"},
+            {"name": "B", "url": "https://b.example/", "category": "search_engine",
+             "search": {"url": "https://b.example/s", "param": "q"}},
+        ])
+        self.assertEqual(CrawlSource.objects.filter(kind="live").count(), 2)
+
+        self.run_import([{"name": "A", "url": "http://a.example/", "category": "paste"}],
+                        "--disable-missing")
+        self.assertEqual(CrawlSource.objects.get(name="A").category, "paste")
+        self.assertFalse(CrawlSource.objects.get(name="B").enabled)
+
+    def test_bad_entry_writes_nothing(self):
+        from django.core.management.base import CommandError
+        from core.models import CrawlSource
+
+        with self.assertRaises(CommandError):
+            self.run_import([
+                {"name": "ok", "url": "http://x.example/", "category": "forum"},
+                {"name": "bad", "url": "ftp://x.example/", "category": "forum"},
+            ])
+        self.assertFalse(CrawlSource.objects.filter(name="ok").exists())
+
+
+class AdminTests(DataTestCase):
+    """The admin site: staff only; pipeline output is read-only."""
+
+    def test_anonymous_redirected_and_staff_can_manage_sources(self):
+        from django.contrib.auth import get_user_model
+
+        self.assertEqual(self.client.get("/admin/").status_code, 302)
+
+        get_user_model().objects.create_superuser("boss", password="s3cret-pass")
+        self.client.login(username="boss", password="s3cret-pass")
+
+        self.assertEqual(self.client.get("/admin/").status_code, 200)
+        self.assertEqual(self.client.get("/admin/core/crawlsource/").status_code, 200)
+        self.assertEqual(self.client.get("/admin/auth/user/").status_code, 200)
+
+        job = make_job("mock")
+        services.run_job(job.job_id)
+        self.assertEqual(self.client.get("/admin/core/artifact/").status_code, 200)
+        self.assertEqual(self.client.get("/admin/core/artifact/add/").status_code, 403)
+        first = job.artifacts.first().pk
+        self.assertEqual(
+            self.client.post(f"/admin/core/artifact/{first}/delete/", {"post": "yes"}).status_code, 403
+        )
+
+    def test_non_staff_user_is_refused(self):
+        from django.contrib.auth import get_user_model
+
+        get_user_model().objects.create_user("viewer", password="s3cret-pass")
+        self.client.login(username="viewer", password="s3cret-pass")
+        self.assertEqual(self.client.get("/admin/").status_code, 302)
+
+
+class OwnershipTests(DataTestCase):
+    """Each user sees only the collections they started."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+        cls.ann = User.objects.create_user("ann", password="s3cret-pass")
+        cls.bob = User.objects.create_user("bob", password="s3cret-pass")
+        cls.boss = User.objects.create_superuser("boss", password="s3cret-pass")
+
+        cls.job = make_job("mock")
+        cls.job.owner = cls.ann
+        cls.job.save()
+        services.run_job(cls.job.job_id)
+        cls.artifact = cls.job.artifacts.first()
+
+    def as_user(self, name):
+        self.client.logout()
+        self.assertTrue(self.client.login(username=name, password="s3cret-pass"))
+
+    def test_owner_sees_job(self):
+        self.as_user("ann")
+        ids = [j["job_id"] for j in self.client.get("/crawl/jobs").json()["jobs"]]
+        self.assertIn(self.job.job_id, ids)
+        self.assertEqual(self.client.get(f"/crawl/status/{self.job.job_id}").status_code, 200)
+
+    def test_other_user_sees_nothing_of_it(self):
+        self.as_user("bob")
+        self.assertEqual(self.client.get("/crawl/jobs").json()["jobs"], [])
+        self.assertEqual(self.client.get(f"/crawl/status/{self.job.job_id}").status_code, 404)
+        self.assertEqual(self.client.get(f"/artifacts?job={self.job.job_id}").json()["total"], 0)
+        self.assertEqual(self.client.get(f"/artifacts/{self.artifact.id}").status_code, 404)
+        self.assertEqual(self.client.get(f"/killchain/{self.artifact.id}").status_code, 404)
+        self.assertEqual(self.client.get(f"/risk-score/{self.artifact.id}").status_code, 404)
+        self.assertEqual(
+            self.client.get(f"/graph/attack-paths?job={self.job.job_id}").status_code, 404
+        )
+        self.assertEqual(self.client.get("/graph/attack-paths").json()["nodes"], [])
+
+        for body in ({"job_id": self.job.job_id}, {"artifact_id": self.artifact.id}):
+            reply = self.client.post(
+                "/reports/export", json.dumps(body), content_type="application/json",
+                HTTP_X_REQUESTED_WITH="cdkciae",
+            )
+            self.assertEqual(reply.status_code, 404)
+
+    def test_new_job_belongs_to_the_starter(self):
+        self.as_user("bob")
+        with mock.patch("core.services.threading.Thread"):
+            reply = self.client.post(
+                "/crawl/start", json.dumps({"mode": "mock"}),
+                content_type="application/json", HTTP_X_REQUESTED_WITH="cdkciae",
+            )
+        self.assertEqual(reply.status_code, 202)
+        self.assertEqual(CrawlJob.objects.get(pk=reply.json()["job_id"]).owner, self.bob)
+        self.assertEqual(len(self.client.get("/crawl/jobs").json()["jobs"]), 1)
+
+    def test_superuser_sees_everything(self):
+        self.as_user("boss")
+        ids = [j["job_id"] for j in self.client.get("/crawl/jobs").json()["jobs"]]
+        self.assertIn(self.job.job_id, ids)
+
+    def test_assign_jobs_command(self):
+        from django.core.management import call_command
+
+        old = make_job("mock")
+        call_command("assign_jobs", "bob", stdout=io.StringIO())
+        old.refresh_from_db()
+        self.assertEqual(old.owner, self.bob)
+        self.assertEqual(CrawlJob.objects.get(pk=self.job.job_id).owner, self.ann)
+
+
+class SignupTests(TestCase):
+
+    H = {"HTTP_X_REQUESTED_WITH": "cdkciae"}
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+
+    def sign_up(self, name="newuser", password="a-long-pass-2026"):
+        return self.client.post(
+            "/auth/register", json.dumps({"username": name, "password": password}),
+            content_type="application/json", **self.H,
+        )
+
+    def test_create_account_signs_in_and_is_not_staff(self):
+        from django.contrib.auth import get_user_model
+
+        reply = self.sign_up()
+        self.assertEqual(reply.status_code, 201)
+        user = get_user_model().objects.get(username="newuser")
+        self.assertFalse(user.is_staff or user.is_superuser)
+        self.assertEqual(self.client.get("/auth/me").json()["username"], "newuser")
+
+    def test_rejects_duplicates_and_weak_input(self):
+        self.assertEqual(self.sign_up().status_code, 201)
+        self.client.logout()
+        self.assertEqual(self.sign_up("NEWUSER").status_code, 409)
+        self.assertEqual(self.sign_up("ab").status_code, 400)
+        self.assertEqual(self.sign_up("other", "12345678").status_code, 400)
+        self.assertEqual(self.sign_up("third", "short").status_code, 400)
+
+    @override_settings(ALLOW_SIGNUP=False)
+    def test_can_be_turned_off(self):
+        self.assertEqual(self.sign_up().status_code, 403)
+        self.assertFalse(self.client.get("/auth/me").json()["signup_allowed"])
+
+    def test_needs_header(self):
+        reply = self.client.post(
+            "/auth/register", json.dumps({"username": "x1y", "password": "a-long-pass-2026"}),
+            content_type="application/json",
+        )
+        self.assertEqual(reply.status_code, 403)

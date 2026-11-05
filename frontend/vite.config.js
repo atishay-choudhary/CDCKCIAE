@@ -13,7 +13,7 @@ export default defineConfig({
   },
   server: {
     proxy: Object.fromEntries(
-      ["crawl", "artifacts", "killchain", "graph", "risk-score", "evaluation", "reports", "tor"]
+      ["crawl", "artifacts", "killchain", "graph", "risk-score", "evaluation", "reports", "tor", "auth", "annotation"]
         .map((p) => [`/${p}`, "http://127.0.0.1:8000"])
     ),
   },

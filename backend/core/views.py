@@ -4,11 +4,10 @@ REST endpoints (SRS 14.2) and the dashboard page.
 Hardening: POST bodies must be application/json (a browser cannot send
 that cross-site without a CORS preflight, which blocks cross-site
 request forgery against a local server); an optional bearer token
-(CDKCIAE_API_TOKEN) protects every API call; no response exposes crawler
+(CDKCIAE_API_TOKEN) or a user session (core.auth) protects every API call; no response exposes crawler
 configuration or raw, unredacted text.
 """
 
-import hmac
 import json
 from functools import wraps
 from pathlib import Path
@@ -20,7 +19,7 @@ from django.views.static import serve as static_serve
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from core import evaluation_store, services
+from core import auth, evaluation_store, services
 from core.models import (
     Artifact,
     CrawlJob,
@@ -37,7 +36,7 @@ MAX_KEYWORD_LENGTH = 64
 
 
 def api(methods):
-    """Method check, optional bearer token, JSON errors."""
+    """Method check, authentication (core.auth), JSON errors."""
 
     def decorator(view):
 
@@ -46,20 +45,35 @@ def api(methods):
         @wraps(view)
         def wrapper(request, *args, **kwargs):
 
-            token = settings.API_TOKEN
+            denied = auth.authorise(request)
 
-            if token:
-
-                supplied = request.headers.get("Authorization", "")
-
-                if not hmac.compare_digest(supplied, f"Bearer {token}"):
-                    return JsonResponse({"error": "unauthorized"}, status=401)
+            if denied:
+                return denied
 
             return view(request, *args, **kwargs)
 
         return wrapper
 
     return decorator
+
+
+def _jobs(request):
+    """Jobs the caller may see (their own, unless superuser or bearer)."""
+
+    owner = auth.visible_to(request)
+
+    queryset = CrawlJob.objects.all()
+
+    return queryset.filter(owner=owner) if owner else queryset
+
+
+def _artifacts(request):
+
+    owner = auth.visible_to(request)
+
+    queryset = Artifact.objects.all()
+
+    return queryset.filter(job__owner=owner) if owner else queryset
 
 
 def _stamp(value):
@@ -144,7 +158,8 @@ def crawl_start(request):
         )
 
     job = services.start_job(
-        mode, keywords, allow_fallback=body.get("allow_fallback", True) is True
+        mode, keywords, allow_fallback=body.get("allow_fallback", True) is True,
+        owner=request.user if request.user.is_authenticated else None,
     )
 
     return JsonResponse(
@@ -158,7 +173,7 @@ def crawl_jobs(request):
     return JsonResponse({
         "jobs": [
             _job_summary(j)
-            for j in CrawlJob.objects.exclude(source="evaluation").select_related("summary")[:50]
+            for j in _jobs(request).exclude(source="evaluation").select_related("summary")[:50]
         ]
     })
 
@@ -166,13 +181,14 @@ def crawl_jobs(request):
 @api(["GET"])
 def crawl_status(request, job_id):
 
-    job = get_object_or_404(CrawlJob.objects.select_related("summary"), pk=job_id)
+    job = get_object_or_404(_jobs(request).select_related("summary"), pk=job_id)
 
     summary = job.summary
 
     return JsonResponse({
         **_job_summary(job),
         "business_risk": summary.business_risk,
+        "enterprise_exposure": (summary.report_data or {}).get("enterprise_exposure", {}),
         "stats": summary.stats,
         "source_report": summary.source_report,
         "job_chain": summary.cyber_kill_chain.get("stages", []),
@@ -223,13 +239,14 @@ def _artifact_summary(artifact):
 @api(["GET"])
 def artifacts(request):
 
-    queryset = Artifact.objects.prefetch_related("kill_chain", "risk_scores")
+    queryset = _artifacts(request).prefetch_related("kill_chain", "risk_scores")
 
     for param, field in (
         ("job", "job_id"),
         ("source", "source__icontains"),
         ("source_type", "source_type"),
         ("stage", "kill_chain__stage"),
+        ("severity", "severity"),
         ("since", "collected_at__date__gte"),
     ):
 
@@ -249,7 +266,7 @@ def artifacts(request):
 @api(["GET"])
 def artifact_detail(request, artifact_id):
 
-    artifact = get_object_or_404(Artifact, pk=artifact_id)
+    artifact = get_object_or_404(_artifacts(request), pk=artifact_id)
 
     return JsonResponse({
         **_artifact_summary(artifact),
@@ -272,7 +289,7 @@ def artifact_detail(request, artifact_id):
 def killchain(request, artifact_id):
 
     artifact = get_object_or_404(
-        Artifact.objects.select_related("job__summary"), pk=artifact_id
+        _artifacts(request).select_related("job__summary"), pk=artifact_id
     )
 
     summary = artifact.job.summary
@@ -316,14 +333,14 @@ def attack_paths(request):
     graph plus its outcome and message, so the dashboard can explain it.
     """
 
-    jobs = CrawlJob.objects.filter(status="completed").exclude(
+    jobs = _jobs(request).filter(status="completed").exclude(
         source="evaluation"
     ).select_related("summary")
 
     if request.GET.get("job"):
 
         job = get_object_or_404(
-            CrawlJob.objects.select_related("summary"), pk=request.GET["job"]
+            _jobs(request).select_related("summary"), pk=request.GET["job"]
         )
 
     else:
@@ -387,7 +404,7 @@ def attack_paths(request):
 @api(["GET"])
 def risk_score(request, artifact_id):
 
-    artifact = get_object_or_404(Artifact, pk=artifact_id)
+    artifact = get_object_or_404(_artifacts(request), pk=artifact_id)
 
     score = artifact.risk_scores.order_by("-scored_at").first()
 
@@ -468,6 +485,98 @@ def evaluation_run(request):
     return JsonResponse({"job_id": job.job_id, "status": job.status}, status=202)
 
 
+# ============================================================
+# ANNOTATION (FR-8.1): label dark-web snippets, score the models on them
+# ============================================================
+
+def _annotation_task():
+
+    from engine.evaluation import darkweb_validation
+
+    return darkweb_validation
+
+
+@api(["GET"])
+def annotation_samples(request):
+    """Sampled snippets with their labels. Source URLs are not exposed."""
+
+    from engine import datastore
+
+    module = _annotation_task()
+
+    rows = datastore.annotation_rows(module.TASK)
+
+    return JsonResponse({
+        "severity_labels": module.TASK_LABELS["severity"],
+        "stage_labels": module.TASK_LABELS["stage"],
+        "samples": [
+            {
+                "id": r["id"],
+                "text": r["text"],
+                "severity": r.get("severity", ""),
+                "stage": r.get("stage", ""),
+            }
+            for r in rows
+        ],
+    })
+
+
+@api(["POST"])
+def annotation_label(request):
+
+    from engine import datastore
+
+    if request.content_type != "application/json":
+        return JsonResponse(
+            {"error": "Content-Type must be application/json"}, status=415
+        )
+
+    try:
+        body = json.loads(request.body or b"{}")
+
+    except ValueError:
+        return JsonResponse({"error": "invalid JSON"}, status=400)
+
+    module = _annotation_task()
+
+    labels = {}
+
+    for field in ("severity", "stage"):
+
+        value = body.get(field)
+
+        if value is None:
+            continue
+
+        if value != "" and value not in module.TASK_LABELS[field]:
+            return JsonResponse({"error": f"invalid {field}"}, status=400)
+
+        labels[field] = value
+
+    try:
+        datastore.annotation_label(module.TASK, str(body.get("id", "")), labels)
+
+    except Exception:
+        return JsonResponse({"error": "unknown sample"}, status=404)
+
+    return JsonResponse({"id": body["id"], **labels})
+
+
+@api(["GET"])
+def annotation_score(request):
+
+    try:
+        reports = _annotation_task().score_labelled()
+
+    except FileNotFoundError:
+        return JsonResponse(
+            {"error": "no trained model yet: run manage.py bootstrap"},
+            status=409
+        )
+
+    return JsonResponse({"reports": reports})
+
+
 @api(["POST"])
 def reports_export(request):
 
@@ -482,8 +591,28 @@ def reports_export(request):
     except ValueError:
         return JsonResponse({"error": "invalid JSON"}, status=400)
 
+    if body.get("artifact_id"):
+
+        artifact = get_object_or_404(
+            _artifacts(request).select_related("job__summary"),
+            pk=body["artifact_id"]
+        )
+
+        try:
+            pdf = services.export_artifact_pdf(artifact)
+
+        except ValueError as e:
+            return JsonResponse({"error": str(e)}, status=409)
+
+        response = HttpResponse(pdf, content_type="application/pdf")
+        response["Content-Disposition"] = (
+            f'attachment; filename="cdkciae_artifact_{artifact.id}.pdf"'
+        )
+
+        return response
+
     job = get_object_or_404(
-        CrawlJob.objects.select_related("summary"), pk=body.get("job_id")
+        _jobs(request).select_related("summary"), pk=body.get("job_id")
     )
 
     try:

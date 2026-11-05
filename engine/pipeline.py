@@ -110,9 +110,14 @@ from engine.intelligence.consequence_engine import (
 
     generate_consequence_model,
 
-    summarize_consequences,
+    summarize_consequences
+)
 
-    calculate_business_risk
+from engine.intelligence.fair_risk import (
+
+    assess_business_risk,
+
+    assess_exposure
 )
 
 # ============================================================
@@ -123,9 +128,7 @@ from engine.intelligence.asset_mapper import (
 
     map_assets,
 
-    summarize_assets,
-
-    calculate_enterprise_exposure
+    summarize_assets
 )
 
 # ============================================================
@@ -586,11 +589,6 @@ def run_pipeline():
         consequence_results
     )
 
-    business_risk = calculate_business_risk(
-
-        consequence_results
-    )
-
     # ========================================================
     # ASSET MAPPING ENGINE
     # ========================================================
@@ -607,17 +605,22 @@ def run_pipeline():
         mapped_assets
     )
 
-    enterprise_exposure = calculate_enterprise_exposure(
-
-        mapped_assets
-    )
-
     cvss_impact = assess_cvss_impact(
         results,
         correlations,
         mapped_assets,
         path_prediction
     )
+
+    # FR-6.2: simplified Open FAIR (traceable factors), needs the CVSS result
+    business_risk = assess_business_risk(
+        results,
+        consequence_results,
+        cvss_impact,
+        enriched_iocs
+    )
+
+    enterprise_exposure = assess_exposure(mapped_assets)
 
     impact_analysis["impact_score_legacy"] = impact_analysis["impact_score"]
     impact_analysis["criticality_legacy"] = impact_analysis["criticality"]

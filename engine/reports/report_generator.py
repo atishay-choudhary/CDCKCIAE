@@ -33,6 +33,20 @@ from reportlab.platypus.flowables import HRFlowable
 # GENERATE PDF REPORT
 # ============================================================
 
+def _factor_lines(factors):
+    """FAIR factors as 'Name: LEVEL (n)' lines, one per factor."""
+
+    from xml.sax.saxutils import escape
+
+    levels = {1: "very low", 2: "low", 3: "medium", 4: "high", 5: "very high"}
+
+    return "<br/>".join(
+        f"&nbsp;&nbsp;{escape(name.replace('_', ' ').title())}: "
+        f"{levels.get(f.get('level'), '?')} ({f.get('level')}/5)"
+        for name, f in factors.items()
+    )
+
+
 def generate_pdf_report(report_data, output=None):
 
     """
@@ -499,7 +513,7 @@ def generate_pdf_report(report_data, output=None):
 
         Paragraph(
 
-            "<b>MITRE ATT&CK Mapping</b>",
+            "<b>MITRE ATT&amp;CK Mapping</b>",
 
             styles["Heading2"]
         )
@@ -523,6 +537,18 @@ def generate_pdf_report(report_data, output=None):
 
         []
     )
+
+    if not mitre_matches:
+
+        elements.append(
+
+            Paragraph(
+
+                "No ATT&amp;CK technique mapping was produced for this run.",
+
+                styles["BodyText"]
+            )
+        )
 
     for item in mitre_matches[:10]:
 
@@ -845,6 +871,101 @@ def generate_pdf_report(report_data, output=None):
     )
 
     # ========================================================
+    # PREDICTED ATTACK PATHS (ATT&CK-learned, same as the dashboard)
+    # ========================================================
+
+    predicted = report_data.get("predicted_paths") or {}
+
+    multi_stage = [
+        p for p in predicted.get("paths", []) if len(p.get("path", [])) > 1
+    ]
+
+    if multi_stage:
+
+        elements.append(
+
+            Paragraph(
+
+                "<b>Predicted Attack Paths</b>",
+
+                styles["Heading2"]
+            )
+        )
+
+        elements.append(
+
+            HRFlowable(
+                width="100%"
+            )
+        )
+
+        elements.append(
+
+            Spacer(1, 10)
+        )
+
+        elements.append(
+
+            Paragraph(
+
+                "Most likely routes from the stages observed. Likelihood "
+                "is the product of transition probabilities learned from "
+                "MITRE ATT&amp;CK intrusion sets "
+                f"({str(predicted.get('transition_source', 'learned')).replace('&', '&amp;')}).",
+
+                styles["BodyText"]
+            )
+        )
+
+        elements.append(
+
+            Spacer(1, 8)
+        )
+
+        for item in sorted(
+            multi_stage, key=lambda p: -p.get("likelihood", 0)
+        )[:8]:
+
+            elements.append(
+
+                Paragraph(
+
+                    f"<b>{' → '.join(item['path'])}</b><br/>"
+                    f"Likelihood: {item.get('likelihood', 0):.4f}",
+
+                    styles["BodyText"]
+                )
+            )
+
+            elements.append(
+
+                Spacer(1, 8)
+            )
+
+        critical = predicted.get("centrality", [])[:5]
+
+        if critical:
+
+            elements.append(
+
+                Paragraph(
+
+                    "<b>Stages most paths pass through:</b> "
+                    + ", ".join(
+                        f"{c['stage']} ({c['betweenness']:.3f})"
+                        for c in critical
+                    ),
+
+                    styles["BodyText"]
+                )
+            )
+
+        elements.append(
+
+            Spacer(1, 25)
+        )
+
+    # ========================================================
     # PROPAGATION ANALYSIS
     # ========================================================
 
@@ -852,7 +973,7 @@ def generate_pdf_report(report_data, output=None):
 
         Paragraph(
 
-            "<b>Propagation Analysis</b>",
+            "<b>Rule-based Propagation (original engine)</b>" if multi_stage else "<b>Propagation Analysis</b>",
 
             styles["Heading2"]
         )
@@ -1048,10 +1169,12 @@ def generate_pdf_report(report_data, output=None):
     business_text = f"""
 
     <b>Business Risk Score:</b>
-    {business_risk.get('score', 0)}<br/>
+    {business_risk.get('score', 0)} / {business_risk.get('max_score', 25)}
+    ({business_risk.get('model', 'simplified Open FAIR')})<br/>
 
     <b>Business Risk Level:</b>
-    {business_risk.get('risk_level', 'UNKNOWN')}
+    {business_risk.get('risk_level', 'UNKNOWN')}<br/>
+    {_factor_lines(business_risk.get('factors', {}))}
     """
 
     elements.append(
@@ -1189,10 +1312,11 @@ def generate_pdf_report(report_data, output=None):
     exposure_text = f"""
 
     <b>Exposure Score:</b>
-    {enterprise_exposure.get('exposure_score', 0)}<br/>
+    {enterprise_exposure.get('exposure_score', 0)} / {enterprise_exposure.get('max_score', 25)}<br/>
 
     <b>Exposure Level:</b>
-    {enterprise_exposure.get('exposure_level', 'UNKNOWN')}
+    {enterprise_exposure.get('exposure_level', 'UNKNOWN')}<br/>
+    {_factor_lines(enterprise_exposure.get('factors', {}))}
     """
 
     elements.append(

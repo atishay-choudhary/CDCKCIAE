@@ -19,13 +19,27 @@ function remember(value) {
   }
 }
 
+let onAuth = null;
+
+// the app registers a function that shows the sign-in form
+export const setAuthHandler = (fn) => {
+  onAuth = fn;
+};
+
+export const storeToken = (value) => remember(value);
+
 async function call(path, options = {}, retried = false) {
-  const headers = { ...(options.headers || {}) };
+  // custom header: browsers cannot send it cross-site without a preflight
+  const headers = { "X-Requested-With": "cdkciae", ...(options.headers || {}) };
   if (token()) headers.Authorization = `Bearer ${token()}`;
   if (options.body) headers["Content-Type"] = "application/json";
 
   const res = await fetch(path, { ...options, headers });
 
+  if (res.status === 401 && onAuth && path !== "/auth/login") {
+    onAuth();
+    throw new Error("sign in to continue");
+  }
   if (res.status === 401 && !retried) {
     const entered = window.prompt("API token (CDKCIAE_API_TOKEN):");
     if (entered) {
@@ -59,3 +73,13 @@ export async function download(path, body, filename) {
   link.click();
   URL.revokeObjectURL(url);
 }
+
+export const signIn = (username, password) =>
+  post("/auth/login", { username, password });
+
+export const register = (username, password) =>
+  post("/auth/register", { username, password });
+
+export const signOut = () => post("/auth/logout", {});
+
+export const whoAmI = () => get("/auth/me");

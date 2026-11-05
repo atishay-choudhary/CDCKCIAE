@@ -20,6 +20,17 @@ _SSN = re.compile(r"\b\d{3}-\d{2}-\d{4}\b")
 _LONG_NUMBER = re.compile(r"\b\d{12,19}\b")
 
 
+def mask_email(address):
+    """j***n@example.com: keeps the domain (useful context), hides the person."""
+
+    local, _, domain = address.partition("@")
+
+    if not domain:
+        return address
+
+    return f"{local[:1]}***{local[-1:] if len(local) > 1 else ''}@{domain}"
+
+
 def redact(text):
 
     text = _EMAIL.sub("user@example.invalid", text)

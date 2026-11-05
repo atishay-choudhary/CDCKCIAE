@@ -24,7 +24,7 @@ from engine.crawlers.darkweb_live_crawler import (
 from engine.extractors.regex_basics import (
     extract_basic
 )
-from engine.evaluation.corpus import save_document
+from engine.evaluation.corpus import mask_email, save_document
 
 # ============================================================
 # DATASETS
@@ -122,9 +122,14 @@ from engine.intelligence.consequence_engine import (
 
     generate_consequence_model,
 
-    summarize_consequences,
+    summarize_consequences
+)
 
-    calculate_business_risk
+from engine.intelligence.fair_risk import (
+
+    assess_business_risk,
+
+    assess_exposure
 )
 
 # ============================================================
@@ -135,9 +140,7 @@ from engine.intelligence.asset_mapper import (
 
     map_assets,
 
-    summarize_assets,
-
-    calculate_enterprise_exposure
+    summarize_assets
 )
 
 
@@ -221,6 +224,12 @@ def run_darkweb_pipeline(keywords):
             page_text
         )
 
+        # Personal data: only a masked form is kept anywhere (database,
+        # dashboard, PDF, graph).
+        extracted["emails"] = [
+            mask_email(e) for e in extracted.get("emails", [])
+        ]
+
         # ====================================================
         # NLP
         # ====================================================
@@ -236,6 +245,10 @@ def run_darkweb_pipeline(keywords):
         entities = extract_entities(
             page_text
         )
+
+        entities["emails"] = [
+            mask_email(e) for e in entities.get("emails", [])
+        ]
 
         artifact_records.append({
             "source": source_url,
@@ -596,11 +609,6 @@ def run_darkweb_pipeline(keywords):
         consequence_results
     )
 
-    business_risk = calculate_business_risk(
-
-        consequence_results
-    )
-
     # ========================================================
     # ASSET MAPPING
     # ========================================================
@@ -617,17 +625,22 @@ def run_darkweb_pipeline(keywords):
         mapped_assets
     )
 
-    enterprise_exposure = calculate_enterprise_exposure(
-
-        mapped_assets
-    )
-
     cvss_impact = assess_cvss_impact(
         results,
         correlations,
         mapped_assets,
         path_prediction
     )
+
+    # FR-6.2: simplified Open FAIR (traceable factors), needs the CVSS result
+    business_risk = assess_business_risk(
+        results,
+        consequence_results,
+        cvss_impact,
+        enriched_iocs
+    )
+
+    enterprise_exposure = assess_exposure(mapped_assets)
 
     impact_analysis["impact_score_legacy"] = impact_analysis["impact_score"]
     impact_analysis["criticality_legacy"] = impact_analysis["criticality"]

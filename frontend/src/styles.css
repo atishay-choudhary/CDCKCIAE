@@ -149,3 +149,33 @@ pre { white-space: pre-wrap; word-break: break-word; background: var(--wash); pa
   @media (prefers-reduced-motion: no-preference) { .strip li.on .col i { transform-origin: left; animation-name: grow; } @keyframes grow { from { transform: scaleX(0); } } }
 }
 @media (prefers-reduced-motion: no-preference) { button { transition: filter .12s; } button:hover:not(:disabled) { filter: brightness(1.12); } }
+
+/* ---- annotation */
+.annotate { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 0 40px; }
+.snippet { margin: 12px 0; padding: 14px 18px; border-left: 5px solid var(--link); background: var(--wash);
+  font: 17px/1.55 var(--sans); max-width: 70ch; white-space: pre-wrap; word-break: break-word; }
+.choices { display: flex; flex-wrap: wrap; gap: 6px; }
+.choice { background: transparent; color: var(--ink); border: 1px solid var(--rule); padding: 7px 14px; }
+.choice.on { background: var(--t, var(--link)); border-color: var(--t, var(--link)); color: var(--paper); }
+.choice.on:not([class*="t-"]) { color: var(--link-ink); }
+.nav { margin-top: 22px; }
+.dots { display: flex; flex-wrap: wrap; gap: 4px; }
+.dot-btn { width: 14px; height: 14px; padding: 0; border-radius: 2px; background: var(--panel); border: 1px solid var(--rule); }
+.dot-btn.set { background: var(--low); border-color: var(--low); }
+.dot-btn.cur { outline: 2px solid var(--ink); outline-offset: 1px; }
+@media (max-width: 860px) { .annotate { grid-template-columns: minmax(0, 1fr); } }
+
+/* sign in */
+.login { max-width: 340px; margin: 12vh auto; padding: 24px; display: grid; gap: 12px;
+  background: var(--panel, #fff); border: 1px solid var(--line, #cdd5df); border-radius: 4px; }
+.login h1 { margin: 0; font-family: var(--display); }
+.login label { display: grid; gap: 4px; font-size: 13px; }
+.login input[type=password] { width: 100%; padding: 7px 10px; border-radius: 3px;
+  border: 1px solid var(--line, #cdd5df); background: transparent; }
+.signout { margin-left: 8px; }
+.account { display: flex; align-items: center; gap: 12px; font-size: 13px; }
+.account b { font-weight: 600; }
+.account .adminlink { color: inherit; text-decoration: underline; }
+button.signout { background: transparent; color: inherit; border: 1px solid currentColor;
+  padding: 5px 12px; border-radius: 3px; cursor: pointer; }
+button.signout:hover { background: rgba(255,255,255,.15); }

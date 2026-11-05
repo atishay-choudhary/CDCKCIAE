@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { download, get, post } from "./api.js";
+import { useCallback, useEffect, useState } from "react";
+import { download, get, post, register, setAuthHandler, signIn, signOut, storeToken, whoAmI } from "./api.js";
+const api = { get, post };
 import {
-  Artifacts, AttackGraph, CaseHeader, Evaluation, JobList, KillChain,
-  Muted, Paths, Risk, RunPanel, Section, SourceReport, TorBadge,
+  Annotate, Artifacts, AttackGraph, CaseHeader, Evaluation, JobList, KillChain,
+  Login, Muted, Paths, Risk, RunPanel, Section, SourceReport, TorBadge,
 } from "./components.jsx";
 
 const ACTIVE = ["queued", "running"];
@@ -23,7 +24,13 @@ export default function App() {
   const [filters, setFilters] = useState({ source: "", stage: "", since: "" });
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState("overview");
-  const picked = useRef(false);
+  const [needLogin, setNeedLogin] = useState(false);
+  const [who, setWho] = useState(null);
+
+  useEffect(() => {
+    setAuthHandler(() => setNeedLogin(true));
+    whoAmI().then(setWho).catch(() => {});
+  }, []);
 
   const loadEvaluation = useCallback(
     () => get("/evaluation/metrics").then(setEvaluation).catch(() => setEvaluation({ state: "none" })),
@@ -48,10 +55,6 @@ export default function App() {
   const loadJobs = useCallback(async () => {
     const { jobs: list } = await get("/crawl/jobs");
     setJobs(list);
-    if (!picked.current && list.length) {
-      picked.current = true;
-      setJobId(list[0].job_id);
-    }
     return list;
   }, []);
 
@@ -118,7 +121,6 @@ export default function App() {
     setBusy(true);
     try {
       const { job_id } = await post("/crawl/start", { mode, keywords, allow_fallback });
-      picked.current = true;
       await loadJobs();
       setJobId(job_id);
     } catch (e) {
@@ -130,15 +132,35 @@ export default function App() {
 
   const finished = job && !ACTIVE.includes(job.status);
   const hasResults = finished && job.artifact_count > 0;
-  const none = finished && !hasResults
-    ? "Nothing to show: this collection produced no results (see the notes above)."
-    : "Waiting for the collection to finish…";
+  const none = !job
+    ? "Nothing open. Start a collection above, or open an earlier one from Cases."
+    : finished && !hasResults
+      ? "Nothing to show: this collection produced no results (see the notes above)."
+      : "Waiting for the collection to finish…";
 
   const tabs = [
     ["overview", "Situation"],
     ["artifacts", `Artifacts${job?.artifact_count ? ` (${job.artifact_count})` : ""}`],
     ["evaluation", "Evaluation"],
+    ["label", "Label"],
   ];
+
+  if (needLogin) {
+    return (
+      <Login
+        onSubmit={async (user, password) => {
+          await signIn(user, password);
+          window.location.reload();
+        }}
+        onRegister={async (user, password) => {
+          await register(user, password);
+          window.location.reload();
+        }}
+        signupAllowed={who?.signup_allowed}
+        onToken={(value) => { storeToken(value); window.location.reload(); }}
+      />
+    );
+  }
 
   return (
     <div className="shell">
@@ -149,6 +171,16 @@ export default function App() {
         </div>
         <RunPanel onStart={start} error={error} busy={busy} />
         <TorBadge tor={tor} />
+        {who?.authenticated && (
+          <div className="account">
+            <span>Signed in as <b>{who.username}</b></span>
+            {who.is_staff && <a className="adminlink" href="/admin/">Admin</a>}
+            <button type="button" className="signout"
+              onClick={() => signOut().then(() => window.location.reload())}>
+              Sign out
+            </button>
+          </div>
+        )}
       </header>
 
       <aside className="cases">
@@ -182,7 +214,7 @@ export default function App() {
             </Section>
             <div className="two">
               <Section title="Risk score" note="CVSS v3.1 environmental, built from the signals found.">
-                {hasResults ? <Risk risk={risk} /> : <Muted>{none}</Muted>}
+                {hasResults ? <Risk risk={risk} fair={job.business_risk} exposure={job.enterprise_exposure} /> : <Muted>{none}</Muted>}
               </Section>
               <Section title="Predicted attack paths" note="Most likely routes from where the attacker is seen.">
                 {hasResults ? <Paths graph={graph} /> : <Muted>{none}</Muted>}
@@ -203,8 +235,16 @@ export default function App() {
           <Section title="Extracted artifacts">
             {job ? (
               <Artifacts list={artifacts} filters={filters} setFilters={setFilters}
-                selected={artifactId} onSelect={setArtifactId} detail={artifact} />
+                selected={artifactId} onSelect={setArtifactId} detail={artifact}
+                onExport={() => download("/reports/export", { artifact_id: artifactId }, `cdkciae_artifact_${artifactId}.pdf`)
+                  .catch((e) => setError(e.message))} />
             ) : <Muted>Start a collection to see what it found.</Muted>}
+          </Section>
+        )}
+
+        {tab === "label" && (
+          <Section title="Label dark-web snippets" note="Your own labels are the only test of the models on real dark-web text.">
+            <Annotate api={api} />
           </Section>
         )}
 

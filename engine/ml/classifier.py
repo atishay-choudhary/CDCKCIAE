@@ -16,9 +16,13 @@ import argparse
 import io
 
 import joblib
+import numpy as np
+from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.linear_model import LogisticRegression
+from sklearn.svm import LinearSVC
 from sklearn.pipeline import Pipeline
 
 from engine import datastore
@@ -32,19 +36,72 @@ TASKS = {
     "stage": "stage",
 }
 
+class XGBText(BaseEstimator, ClassifierMixin):
+    """
+    Gradient-boosted trees (FR-3.1) behind the scikit-learn interface.
+
+    XGBoost needs integer class ids, so labels are encoded here and the
+    original strings are exposed through classes_. xgboost is an optional
+    dependency, imported only when the model is fitted.
+    """
+
+    def __init__(self, n_estimators=300, max_depth=6, learning_rate=0.2):
+        self.n_estimators = n_estimators
+        self.max_depth = max_depth
+        self.learning_rate = learning_rate
+
+    def fit(self, X, y):
+
+        try:
+            from xgboost import XGBClassifier
+        except ImportError as error:
+            raise ImportError(
+                "the xgboost model needs the optional package: pip install xgboost"
+            ) from error
+
+        self.classes_, encoded = np.unique(np.asarray(y), return_inverse=True)
+
+        self.model_ = XGBClassifier(
+            n_estimators=self.n_estimators,
+            max_depth=self.max_depth,
+            learning_rate=self.learning_rate,
+            tree_method="hist",
+            n_jobs=-1,
+            random_state=SEED,
+        )
+        self.model_.fit(X, encoded)
+
+        return self
+
+    def predict_proba(self, X):
+        return self.model_.predict_proba(X)
+
+    def predict(self, X):
+        return self.classes_[self.predict_proba(X).argmax(axis=1)]
+
+
 # FR-3.1: selectable classifier.
 MODELS = {
-    "logreg": lambda: LogisticRegression(
+    "logreg": lambda C=1.0: LogisticRegression(
         max_iter=1000,
+        C=C,
         class_weight="balanced"
     ),
-    "rf": lambda: RandomForestClassifier(
+    "rf": lambda C=1.0: RandomForestClassifier(
         n_estimators=200,
         class_weight="balanced",
         n_jobs=-1,
         random_state=SEED
     ),
+    # linear SVM, calibrated so predict() still returns probabilities
+    "svm": lambda C=0.3: CalibratedClassifierCV(
+        LinearSVC(C=C, class_weight="balanced"), cv=3
+    ),
+    # optional: needs `pip install xgboost` (C is not used)
+    "xgboost": lambda C=None: XGBText(),
 }
+
+PARAMS_KEY = "tuned_params:"
 
 _loaded = {}
 
@@ -58,7 +115,15 @@ def load_split(task):
     return datastore.labelled_split(task)
 
 
-def build_model(model_name="logreg"):
+def tuned_params(task):
+    """{"model", "C", "max_features"} saved by the tuning run, or None."""
+
+    return datastore.cache_get(PARAMS_KEY + task)
+
+
+def build_model(model_name="logreg", C=None, max_features=50000):
+
+    options = {} if C is None else {"C": C}
 
     return Pipeline([
         (
@@ -66,13 +131,24 @@ def build_model(model_name="logreg"):
             TfidfVectorizer(
                 ngram_range=(1, 2),
                 min_df=2,
-                max_features=50000,
+                max_features=max_features,
                 sublinear_tf=True,
                 stop_words="english"
             )
         ),
-        ("clf", MODELS[model_name]())
+        ("clf", MODELS[model_name](**options))
     ])
+
+
+def pipeline_for(task, model_name="logreg"):
+    """An unfitted pipeline: the tuned configuration if one is saved."""
+
+    best = tuned_params(task)
+
+    if best:
+        return build_model(best["model"], best["C"], best["max_features"])
+
+    return build_model(model_name)
 
 
 def train(task, model_name="logreg", save=True):
@@ -82,7 +158,7 @@ def train(task, model_name="logreg", save=True):
 
     X_train, y_train, _, _ = load_split(task)
 
-    pipeline = build_model(model_name)
+    pipeline = pipeline_for(task, model_name)
     pipeline.fit(X_train, y_train)
 
     if save:

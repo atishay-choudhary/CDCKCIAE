@@ -1,6 +1,6 @@
 from django.urls import path
 
-from core import views
+from core import auth, views
 
 urlpatterns = [
     path("", views.dashboard),
@@ -15,6 +15,13 @@ urlpatterns = [
     path("risk-score/<str:artifact_id>", views.risk_score),
     path("evaluation/metrics", views.evaluation_metrics),
     path("evaluation/run", views.evaluation_run),
+    path("annotation/samples", views.annotation_samples),
+    path("annotation/label", views.annotation_label),
+    path("annotation/score", views.annotation_score),
     path("reports/export", views.reports_export),
     path("tor/status", views.tor_status),
+    path("auth/me", auth.me),
+    path("auth/login", auth.login_view),
+    path("auth/register", auth.register_view),
+    path("auth/logout", auth.logout_view),
 ]

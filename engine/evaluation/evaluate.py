@@ -33,7 +33,8 @@ from engine.intelligence.threat_scorer import calculate_threat_score
 from engine.ml.classifier import (
     MODELS,
     TASKS,
-    build_model,
+    pipeline_for,
+    tuned_params,
     load_split,
     train
 )
@@ -207,7 +208,7 @@ def evaluate_task(task, model_name):
     tuned_pred = [tuned(text) for text in X_test]
 
     report = {
-        "model": model_name,
+        "model": (tuned_params(task) or {}).get("model", model_name),
         "test_rows": len(y_test),
         "classifier": score(y_test, list(model_pred), labels),
         "baseline": score(y_test, base_pred, labels),
@@ -219,7 +220,7 @@ def evaluate_task(task, model_name):
         X_train, y_train, _, _ = load_split(task)
 
         folds = cross_val_score(
-            build_model(model_name),
+            pipeline_for(task, model_name),
             X_train + X_test,
             y_train + y_test,
             cv=5,
