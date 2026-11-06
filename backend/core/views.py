@@ -228,7 +228,10 @@ def _artifact_summary(artifact):
             for kind, values in artifact.extracted_entities.items()
             if not kind.startswith("_")
         },
-        "extraction": artifact.extracted_entities.get("_extraction", {}),
+        "extraction": {
+            k: v for k, v in artifact.extracted_entities.get("_extraction", {}).items()
+            if k in ("regex", "ner", "duplicates_removed")
+        },
         "ml_severity": ml.get("severity") or "",
         "ml_severity_confidence": ml.get("confidence"),
         "ml_stage": stage,
@@ -280,6 +283,9 @@ def artifact_detail(request, artifact_id):
                 "affected_platforms", "exploit_availability"
             )
         ),
+        # both extractors' own results; None for jobs run before this was stored
+        "regex_entities": artifact.extracted_entities.get("_extraction", {}).get("regex_entities"),
+        "ner_entities": artifact.extracted_entities.get("_extraction", {}).get("ner_entities"),
         "text": artifact.raw_text[:2000],
         "text_note": "redacted; first 2000 characters",
     })
@@ -575,6 +581,91 @@ def annotation_score(request):
         )
 
     return JsonResponse({"reports": reports})
+
+
+def _ner():
+
+    from engine.evaluation import ner_evaluation
+
+    return ner_evaluation
+
+
+@api(["GET"])
+def entity_samples(request):
+    """Snippets for entity labelling. Source URLs are not exposed."""
+
+    from engine import datastore
+
+    ner = _ner()
+
+    return JsonResponse({
+        "types": ner.TYPES,
+        "samples": [
+            {
+                "id": r["id"],
+                "text": r["text"],
+                "labels": {t: r.get(t, "") for t in ner.TYPES},
+                "reviewed": bool(r.get(ner.REVIEWED) or any(r.get(t) for t in ner.TYPES)),
+            }
+            for r in datastore.annotation_rows(ner.TASK)
+        ],
+    })
+
+
+@api(["POST"])
+def entity_label(request):
+
+    if request.content_type != "application/json":
+        return JsonResponse(
+            {"error": "Content-Type must be application/json"}, status=415
+        )
+
+    try:
+        body = json.loads(request.body or b"{}")
+
+    except ValueError:
+        return JsonResponse({"error": "invalid JSON"}, status=400)
+
+    labels = body.get("labels", {})
+
+    if not isinstance(labels, dict) or any(
+        not isinstance(v, str) or len(v) > 2000 for v in labels.values()
+    ):
+        return JsonResponse({"error": "labels must be text values"}, status=400)
+
+    try:
+        saved = _ner().save_labels(str(body.get("id", "")), labels)
+
+    except ValueError as error:
+        return JsonResponse({"error": str(error)}, status=400)
+
+    except Exception:
+        return JsonResponse({"error": "unknown sample"}, status=404)
+
+    return JsonResponse({"id": body["id"], "labels": saved, "reviewed": True})
+
+
+@api(["GET"])
+def entity_score(request):
+
+    import contextlib
+    import io
+
+    ner = _ner()
+
+    with contextlib.redirect_stdout(io.StringIO()):
+        report = ner.score()
+
+    if report is None:
+        return JsonResponse({"error": "nothing labelled yet"}, status=409)
+
+    from engine.nlp.ner_extractor import extract_named_entities
+
+    report["ner_available"] = bool(
+        extract_named_entities("Microsoft opened an office in London.")
+    )
+
+    return JsonResponse({"report": report, "types": ner.TYPES})
 
 
 @api(["POST"])

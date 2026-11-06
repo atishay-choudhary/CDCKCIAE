@@ -461,12 +461,40 @@ export function Artifacts({ list, filters, setFilters, selected, onSelect, detai
   );
 }
 
+function EntityCompare({ regex, ner }) {
+  if (!regex && !ner)
+    return <p className="muted small">This collection was run before the two lists were stored separately.</p>;
+  const kinds = [...new Set([...Object.keys(regex || {}), ...Object.keys(ner || {})])].sort();
+  if (!kinds.length) return <p className="muted small">Neither extractor found an entity here.</p>;
+  const cell = (list) => (list?.length ? list.join(", ") : <span className="muted">none</span>);
+  return (
+    <div className="scroll">
+      <table>
+        <thead><tr><th>Type</th><th>Regex</th><th>spaCy NER</th></tr></thead>
+        <tbody>
+          {kinds.map((k) => (
+            <tr key={k}>
+              <td>{k.replace("_", " ")}</td>
+              <td className="small">{cell(regex?.[k])}</td>
+              <td className="small">{cell(ner?.[k])}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function ArtifactDetail({ a, onExport }) {
   return (
     <>
       <button type="button" className="quiet" onClick={onExport}>Export PDF for this artifact</button>
-      <h3>Entities (regex + NER, merged)</h3>
-      <pre>{JSON.stringify(a.entities, null, 2)}</pre>
+      <h3>Entities: regex and spaCy side by side</h3>
+      <EntityCompare regex={a.regex_entities} ner={a.ner_entities} />
+      <details>
+        <summary>Merged result (what the rest of the system uses)</summary>
+        <pre>{JSON.stringify(a.entities, null, 2)}</pre>
+      </details>
       {a.extraction && (
         <p className="muted small">
           Regex found {a.extraction.regex ?? "n/a"}, NER found{" "}
@@ -750,6 +778,165 @@ export function Annotate({ api }) {
             </table>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- entity labelling
+
+const ENTITY_HELP = {
+  emails: "as written, e.g. c***s@gmail.com",
+  ipv4: "IP addresses",
+  cves: "CVE-2024-1234",
+  domains: "example.com",
+  organizations: "companies, agencies",
+  locations: "countries, cities",
+  products: "software, services",
+  threat_actors: "hacker groups, handles",
+  malware_tools: "malware, attack tools",
+};
+
+export function AnnotateEntities({ api }) {
+  const [data, setData] = useState(null);
+  const [index, setIndex] = useState(0);
+  const [draft, setDraft] = useState({});
+  const [saved, setSaved] = useState(false);
+  const [scores, setScores] = useState(null);
+  const [scoring, setScoring] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    api.get("/annotation/entities").then(setData).catch((e) => setError(e.message));
+  }, [api]);
+
+  const sample = data?.samples[index];
+
+  useEffect(() => {
+    if (sample) setDraft(sample.labels);
+  }, [sample?.id]);            // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (error) return <p className="error" role="alert">{error}</p>;
+  if (!data) return <Muted>Loading…</Muted>;
+  if (!data.samples.length)
+    return (
+      <Muted>
+        No snippets sampled yet. Run <code>python -m engine.evaluation.ner_evaluation export</code> once
+        after you have collected some live pages.
+      </Muted>
+    );
+
+  const done = data.samples.filter((s) => s.reviewed).length;
+
+  const save = async (labels) => {
+    setError("");
+    try {
+      const reply = await api.post("/annotation/entities/label", { id: sample.id, labels });
+      setData((d) => ({
+        ...d,
+        samples: d.samples.map((s) => (s.id === sample.id ? { ...s, labels: reply.labels, reviewed: true } : s)),
+      }));
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1200);
+      const order = [...data.samples.keys()];
+      const after = order.slice(index + 1).concat(order.slice(0, index));
+      const open = after.find((i) => !data.samples[i].reviewed);
+      setIndex(open ?? index);
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  const none = Object.fromEntries(data.types.map((t) => [t, ""]));
+
+  const runScore = () => {
+    setScoring(true);
+    setError("");
+    api.get("/annotation/entities/score")
+      .then(setScores)
+      .catch((e) => setError(e.message))
+      .finally(() => setScoring(false));
+  };
+
+  const report = scores?.report;
+
+  return (
+    <div className="annotate">
+      <div className="annotate-main">
+        <p className="muted">
+          Snippet {index + 1} of {data.samples.length}. {done} reviewed. Type every entity you can see, as it is
+          written in the text; separate several of one kind with <b>|</b>. Leave a box empty if there is none of
+          that kind. Do this without looking at what the system extracts.
+        </p>
+        <blockquote className="snippet">{sample.text}</blockquote>
+
+        <div className="entity-grid">
+          {data.types.map((t) => (
+            <label key={t}>
+              <span>{t.replace("_", " ")} <small className="muted">{ENTITY_HELP[t]}</small></span>
+              <input type="text" value={draft[t] ?? ""} spellCheck={false}
+                     onChange={(e) => setDraft({ ...draft, [t]: e.target.value })} />
+            </label>
+          ))}
+        </div>
+
+        <div className="row nav">
+          <button type="button" className="quiet" disabled={index === 0}
+            onClick={() => setIndex(index - 1)}>Previous</button>
+          <button type="button" onClick={() => save(draft)}>Save and next</button>
+          <button type="button" className="quiet" onClick={() => save(none)}>
+            No entities in this snippet
+          </button>
+          {saved && <span className="muted small" role="status">Saved</span>}
+        </div>
+      </div>
+
+      <div className="annotate-side">
+        <h3>Progress</h3>
+        <div className="dots" role="list">
+          {data.samples.map((s, i) => (
+            <button key={s.id} type="button" role="listitem" aria-label={`Snippet ${i + 1}`}
+              className={`dot-btn ${s.reviewed ? "set" : ""} ${i === index ? "cur" : ""}`}
+              onClick={() => setIndex(i)} />
+          ))}
+        </div>
+
+        <h3>Score the extractors</h3>
+        <p className="muted small">
+          Compares regex, spaCy and the merged result with your labels. Below about 30 reviewed snippets the
+          numbers are not reliable.
+        </p>
+        <button type="button" className="quiet" disabled={done === 0 || scoring} onClick={runScore}>
+          {scoring ? "Scoring…" : "Score now"}
+        </button>
+
+        {report && !report.ner_available && (
+          <div className="banner bad">spaCy is not available in this server, so the NER column is empty.</div>
+        )}
+        {report && (
+          <>
+            <h3>{report.rows} reviewed</h3>
+            <div className="scroll">
+              <table>
+                <thead>
+                  <tr><th>Type</th><th>Truth</th><th>Regex F1</th><th>NER F1</th><th>Merged F1</th></tr>
+                </thead>
+                <tbody>
+                  {[...scores.types, "ALL"].filter((t) => report.support[t]).map((t) => (
+                    <tr key={t}>
+                      <td>{t}</td>
+                      <td>{report.support[t]}</td>
+                      <td>{fmt(report.regex[t].f1, 2)}</td>
+                      <td>{fmt(report.ner[t].f1, 2)}</td>
+                      <td>{fmt(report.merged[t].f1, 2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="muted small">Precision and recall are stored with the report and shown in the Evaluation tab.</p>
+          </>
+        )}
       </div>
     </div>
   );

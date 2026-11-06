@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { download, get, post, register, setAuthHandler, signIn, signOut, storeToken, whoAmI } from "./api.js";
 const api = { get, post };
 import {
-  Annotate, Artifacts, AttackGraph, CaseHeader, Evaluation, JobList, KillChain,
+  Annotate, AnnotateEntities, Artifacts, AttackGraph, CaseHeader, Evaluation, JobList, KillChain,
   Login, Muted, Paths, Risk, RunPanel, Section, SourceReport, TorBadge,
 } from "./components.jsx";
 
@@ -24,6 +24,7 @@ export default function App() {
   const [filters, setFilters] = useState({ source: "", stage: "", since: "" });
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState("overview");
+  const [labelMode, setLabelMode] = useState("classes");
   const [needLogin, setNeedLogin] = useState(false);
   const [who, setWho] = useState(null);
 
@@ -244,7 +245,14 @@ export default function App() {
 
         {tab === "label" && (
           <Section title="Label dark-web snippets" note="Your own labels are the only test of the models on real dark-web text.">
-            <Annotate api={api} />
+            <div className="row modes" role="tablist">
+              {[["classes", "Severity and stage"], ["entities", "Entities"]].map(([id, text]) => (
+                <button key={id} type="button" role="tab" aria-selected={labelMode === id}
+                  className={`choice ${labelMode === id ? "on" : ""}`}
+                  onClick={() => setLabelMode(id)}>{text}</button>
+              ))}
+            </div>
+            {labelMode === "classes" ? <Annotate api={api} /> : <AnnotateEntities api={api} />}
           </Section>
         )}
 

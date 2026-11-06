@@ -419,6 +419,8 @@ def _persist(job, summary, output):
                     "regex": record.get("regex_count"),
                     "ner": record.get("ner_count"),
                     "duplicates_removed": record.get("duplicates_removed"),
+                    "regex_entities": _plain(record.get("regex_entities")),
+                    "ner_entities": _plain(record.get("ner_entities")),
                 },
             },
         )

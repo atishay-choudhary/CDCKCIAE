@@ -44,6 +44,10 @@ TYPES = [
 SAMPLE_SIZE = 100
 SEED = 42
 
+# stored with the labels when an annotator has looked at a snippet, so a
+# snippet with no entities at all still counts as labelled (empty truth)
+REVIEWED = "_reviewed"
+
 
 def export():
 
@@ -73,16 +77,38 @@ def export():
     print("    Label each one: label <id> <type>=a|b ...  then run: score")
 
 
-def label(sample_id, pairs):
-
-    values = dict(p.split("=", 1) for p in pairs)
+def save_labels(sample_id, values):
+    """Stores one snippet's labels (every type; "" = none) as reviewed."""
 
     unknown = set(values) - set(TYPES)
 
     if unknown:
-        raise SystemExit(f"unknown entity types: {sorted(unknown)}")
+        raise ValueError(f"unknown entity types: {sorted(unknown)}")
 
-    datastore.annotation_label(TASK, sample_id, values)
+    labels = {t: str(values.get(t, "")).strip() for t in TYPES}
+
+    datastore.annotation_label(TASK, sample_id, {**labels, REVIEWED: "1"})
+
+    return labels
+
+
+def labelled_rows():
+
+    return [
+        r for r in datastore.annotation_rows(TASK)
+        if r.get(REVIEWED) or any(r.get(t) for t in TYPES)
+    ]
+
+
+def label(sample_id, pairs):
+
+    values = dict(p.split("=", 1) for p in pairs)
+
+    try:
+        save_labels(sample_id, values)
+
+    except ValueError as error:
+        raise SystemExit(str(error))
 
     print(f"[+] {sample_id}: {values}")
 
@@ -114,10 +140,11 @@ def _prf(tp, fp, fn):
 
 def score():
 
-    rows = [
-        r for r in datastore.annotation_rows(TASK)
-        if any(r.get(t) for t in TYPES)
-    ]
+    rows = labelled_rows()
+
+    if not rows:
+        print("Nothing labelled yet.")
+        return None
 
     systems = {"regex": {}, "ner": {}, "merged": {}}
 
@@ -189,6 +216,8 @@ def score():
     datastore.save_report("ner_evaluation", report)
 
     print("\n[+] Stored in the database")
+
+    return report
 
 
 if __name__ == "__main__":

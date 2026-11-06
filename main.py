@@ -2,6 +2,8 @@
 Main CLI entry point
 for the C.D.K.C.I.A.E
 Threat Intelligence Utility.
+
+Run " $env:CDKCIAE_REQUIRE_LOGIN = "1" " before runserver to enable login
 """
 
 

@@ -815,3 +815,90 @@ class SignupTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(reply.status_code, 403)
+
+
+class EntityLabellingTests(DataTestCase):
+    """Entity labels: reviewed-empty snippets count, scoring works from the API."""
+
+    H = {"HTTP_X_REQUESTED_WITH": "cdkciae"}
+
+    def setUp(self):
+        from engine import datastore
+
+        datastore.annotation_replace("entities", [
+            {"id": "ent-001", "text": "Contact admin@evil.example about CVE-2024-1234 at 10.1.2.3",
+             "source": "https://example.invalid/a", "source_type": "live"},
+            {"id": "ent-002", "text": "nothing useful in this one",
+             "source": "https://example.invalid/b", "source_type": "live"},
+        ])
+
+    def label(self, sample_id, labels):
+        return self.client.post(
+            "/annotation/entities/label", json.dumps({"id": sample_id, "labels": labels}),
+            content_type="application/json",
+        )
+
+    def test_samples_hide_source_and_start_unreviewed(self):
+        body = self.client.get("/annotation/entities").json()
+        self.assertEqual(len(body["samples"]), 2)
+        self.assertNotIn("source", body["samples"][0])
+        self.assertFalse(any(s["reviewed"] for s in body["samples"]))
+        self.assertIn("emails", body["types"])
+
+    def test_empty_labels_count_as_reviewed_and_are_scored(self):
+        self.assertEqual(self.client.get("/annotation/entities/score").status_code, 409)
+
+        self.assertEqual(self.label("ent-001", {
+            "emails": "admin@evil.example", "cves": "CVE-2024-1234", "ipv4": "10.1.2.3",
+        }).status_code, 200)
+        self.assertEqual(self.label("ent-002", {}).status_code, 200)
+
+        samples = self.client.get("/annotation/entities").json()["samples"]
+        self.assertTrue(all(s["reviewed"] for s in samples))
+
+        reply = self.client.get("/annotation/entities/score")
+        self.assertEqual(reply.status_code, 200)
+        report = reply.json()["report"]
+        self.assertEqual(report["rows"], 2)
+        self.assertEqual(report["support"]["ALL"], 3)
+        self.assertGreater(report["regex"]["ALL"]["recall"], 0.9)
+
+    def test_validation(self):
+        self.assertEqual(self.label("ent-001", {"colours": "red"}).status_code, 400)
+        self.assertEqual(self.label("ent-999", {"emails": "a@b.c"}).status_code, 404)
+        bad = self.client.post("/annotation/entities/label", "{}", content_type="text/plain")
+        self.assertEqual(bad.status_code, 415)
+
+
+class EntityCompareTests(DataTestCase):
+    """UC-2: the two extractors' results are kept apart and shown side by side."""
+
+    def test_merge_returns_both_inputs(self):
+        from engine.nlp.entity_merge import merge_entities
+
+        out = merge_entities({"cves": ["CVE-1"]}, {"organizations": ["Acme"], "cves": ["cve-1"]})
+        self.assertEqual(out["regex_entities"], {"cves": ["CVE-1"]})
+        self.assertEqual(out["ner_entities"], {"cves": ["cve-1"], "organizations": ["Acme"]})
+        self.assertEqual(out["entities"], {"cves": ["CVE-1"], "organizations": ["Acme"]})
+        self.assertEqual(out["duplicates_removed"], 1)
+
+    def test_artifact_detail_has_both_lists_and_summary_stays_small(self):
+        from engine.pipeline import run_pipeline
+
+        output = run_pipeline()
+        records = output["artifact_records"]
+        records[0]["regex_entities"] = {"cves": ["CVE-2099-0001"]}
+        records[0]["ner_entities"] = {"organizations": ["Acme Corp"]}
+
+        job = make_job("mock")
+        with mock.patch("core.services._collect", return_value=(output, "mock", "results", "")):
+            services.run_job(job.job_id)
+
+        first = job.artifacts.get(source=records[0]["source"])
+        detail = self.client.get(f"/artifacts/{first.id}").json()
+        self.assertEqual(detail["regex_entities"], {"cves": ["CVE-2099-0001"]})
+        self.assertEqual(detail["ner_entities"], {"organizations": ["Acme Corp"]})
+        self.assertNotIn("regex_entities", detail["extraction"])
+
+        listing = self.client.get(f"/artifacts?job={job.job_id}").json()["artifacts"][0]
+        self.assertNotIn("regex_entities", listing["extraction"])
