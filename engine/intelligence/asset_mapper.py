@@ -61,6 +61,9 @@ CRITICALITY_RULES = {
     "dev": "MEDIUM"
 }
 
+# keyword signals describe attacker activity, they are not assets
+UNRATED = "UNRATED"
+
 # ============================================================
 # INFRASTRUCTURE TAGS
 # ============================================================
@@ -97,6 +100,12 @@ def map_assets(
     mapped_assets = []
 
     seen = set()
+
+    confirmed = {
+        i["value"].lower() for i in enriched_iocs
+        if i.get("ioc_type") == "cve"
+        and (i.get("kev") or i.get("severity", "UNKNOWN") != "UNKNOWN")
+    }
 
     # ========================================================
     # PROCESS RESULTS
@@ -153,7 +162,9 @@ def map_assets(
 
         if item_type == "email":
 
-            lower_value = value.lower()
+            # only the part before the @ names a function: "gmail.com" or
+            # "mail.example.org" must not make every address a mail system
+            lower_value = value.lower().split("@")[0]
 
             for keyword, unit in BUSINESS_UNIT_RULES.items():
 
@@ -192,7 +203,10 @@ def map_assets(
 
             infrastructure = "Vulnerable Enterprise Technology"
 
-            criticality = "HIGH"
+            # a CVE only counts as a high-value asset once something
+            # confirms it exists (an NVD severity or the KEV catalogue);
+            # an identifier seen only in page text is capped at LOW
+            criticality = "HIGH" if value.lower() in confirmed else "LOW"
 
             asset_role = "software-stack"
 
@@ -209,23 +223,10 @@ def map_assets(
                 "unknown"
             )
 
+            # a word on a page is evidence, not an enterprise asset
             asset_role = subtype
 
-            if subtype == "access":
-
-                criticality = "HIGH"
-
-            elif subtype == "movement":
-
-                criticality = "CRITICAL"
-
-            elif subtype == "leak":
-
-                criticality = "CRITICAL"
-
-            elif subtype == "sale":
-
-                criticality = "HIGH"
+            criticality = UNRATED
 
         # ====================================================
         # BUILD ASSET RECORD

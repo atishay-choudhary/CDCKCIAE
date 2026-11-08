@@ -478,17 +478,63 @@ class FairRiskTests(TestCase):
     def test_factors_and_range(self):
         from engine.intelligence.fair_risk import assess_business_risk
 
-        signals = [{"subtype": "sale"}, {"subtype": "exploit"}] * 4
+        signals = [
+            {"subtype": "sale", "source": "http://a.onion/x"},
+            {"subtype": "exploit", "source": "http://b.onion/y"},
+            {"subtype": "access", "source": "http://c.onion/z"},
+            {"subtype": "leak", "source": "http://d.onion/w"},
+        ]
         consequences = [{"severity": "HIGH", "compliance_effects": ["GDPR exposure"]}]
-        cvss = {"scenarios": [{"environmental_score": 7.2}]}
+        cvss = {"scenarios": [{"environmental_score": 7.2, "source": "NVD vector"}]}
         out = assess_business_risk(signals, consequences, cvss, [{"kev": True}])
 
-        self.assertEqual(out["factors"]["threat_event_frequency"]["level"], 4)
+        self.assertEqual(out["factors"]["threat_event_frequency"]["level"], 5)
         self.assertEqual(out["factors"]["vulnerability"]["level"], 5)
         self.assertEqual(out["factors"]["loss_magnitude"]["level"], 4)
         self.assertEqual(out["score"], 20)
         self.assertEqual(out["risk_level"], "CRITICAL")
         self.assertTrue(1 <= out["score"] <= out["max_score"])
+
+    def test_assumed_profiles_do_not_make_a_vulnerability(self):
+        from engine.intelligence.fair_risk import vulnerability
+
+        level, evidence = vulnerability(
+            {"scenarios": [{"environmental_score": 9.8, "source": "assumed profile"}]}, []
+        )
+        self.assertEqual((level, evidence["confirmed_cves"]), (2, 0))
+
+    def test_one_site_repeated_is_not_corroboration(self):
+        from engine.intelligence.fair_risk import threat_event_frequency
+
+        many = [{"subtype": "exploit", "source": f"https://ahmia.fi/?q={i}"} for i in range(30)]
+        level, evidence = threat_event_frequency(many)
+        self.assertEqual(evidence["distinct_sources"], 1)
+        self.assertEqual(level, 1)
+
+    def test_keywords_are_not_assets_and_unconfirmed_cves_are_capped(self):
+        from engine.intelligence.asset_mapper import map_assets
+        from engine.intelligence.fair_risk import assess_exposure
+
+        results = [
+            {"type": "keyword", "subtype": "leak", "value": "dump"},
+            {"type": "cve", "value": "cve-2026-1"},
+            {"type": "cve", "value": "cve-2020-2"},
+            {"type": "email", "value": "c***s@gmail.com"},
+            {"type": "email", "value": "admin@corp.example"},
+        ]
+        enriched = [
+            {"ioc_type": "cve", "value": "cve-2026-1", "severity": "UNKNOWN", "kev": False},
+            {"ioc_type": "cve", "value": "cve-2020-2", "severity": "HIGH", "kev": False},
+        ]
+        by = {a["asset"]: a["criticality"] for a in map_assets(results, enriched)}
+        self.assertEqual(by["dump"], "UNRATED")
+        self.assertEqual(by["cve-2026-1"], "LOW")
+        self.assertEqual(by["cve-2020-2"], "HIGH")
+        self.assertEqual(by["c***s@gmail.com"], "LOW")   # "gmail" is not a mail system
+        self.assertEqual(by["admin@corp.example"], "CRITICAL")
+
+        only_words = map_assets(results[:1], [])
+        self.assertEqual(assess_exposure(only_words)["exposure_level"], "LOW")
 
     def test_empty_input_is_lowest(self):
         from engine.intelligence.fair_risk import assess_business_risk, assess_exposure
@@ -863,6 +909,28 @@ class EntityLabellingTests(DataTestCase):
         self.assertEqual(report["support"]["ALL"], 3)
         self.assertGreater(report["regex"]["ALL"]["recall"], 0.9)
 
+    def test_score_lists_what_was_missed(self):
+        self.label("ent-001", {"products": "Mura"})
+
+        report = self.client.get("/annotation/entities/score").json()["report"]
+        self.assertIn("mura", report["misses"]["products"]["missed"])
+
+    def test_suggestions_are_opt_in_and_assisted_labels_are_flagged(self):
+        plain = self.client.get("/annotation/entities").json()["samples"]
+        self.assertNotIn("suggested", plain[0])
+
+        assisted = self.client.get("/annotation/entities?suggest=1").json()["samples"]
+        self.assertTrue(all("suggested" in s for s in assisted))
+
+        self.client.post(
+            "/annotation/entities/label",
+            json.dumps({"id": "ent-001", "labels": {"emails": "a@b.co"}, "assisted": True}),
+            content_type="application/json", HTTP_X_REQUESTED_WITH="cdkciae",
+        )
+        self.label("ent-002", {})
+        report = self.client.get("/annotation/entities/score").json()["report"]
+        self.assertEqual((report["rows"], report["assisted_rows"]), (2, 1))
+
     def test_validation(self):
         self.assertEqual(self.label("ent-001", {"colours": "red"}).status_code, 400)
         self.assertEqual(self.label("ent-999", {"emails": "a@b.c"}).status_code, 404)
@@ -902,3 +970,83 @@ class EntityCompareTests(DataTestCase):
 
         listing = self.client.get(f"/artifacts?job={job.job_id}").json()["artifacts"][0]
         self.assertNotIn("regex_entities", listing["extraction"])
+
+
+class StageGNNTests(TestCase):
+    """O3 (optional): the graph neural network's gradients and behaviour."""
+
+    def test_gradients_match_finite_differences(self):
+        import numpy as np
+        from engine.ml.gnn import StageGNN
+
+        g = StageGNN()
+        rng = np.random.default_rng(1)
+        h = g.hidden
+        g.params = {
+            "W1": rng.normal(0, .5, (3, h)), "W2": rng.normal(0, .5, (h, h)),
+            "w": rng.normal(0, .5, h), "c": np.zeros(()),
+        }
+        a, b = sorted(g.index)[0], "Exfiltration"
+        a = "Initial Access"
+        p = g._features({"Initial Access", "Execution"}, a, "Execution")
+        ia, ib, y = g.index[a], g.index["Execution"], 1.0
+
+        def loss():
+            pr, _ = g._forward(p, ia, ib)
+            return -(y * np.log(pr) + (1 - y) * np.log(1 - pr))
+
+        pr, (z1, q, h2) = g._forward(p, ia, ib)
+        ds = pr - y
+        dh2 = np.zeros_like(h2)
+        dh2[ia] += ds * g.params["w"] * h2[ib]
+        dh2[ib] += ds * g.params["w"] * h2[ia]
+        analytic = {
+            "W2": q.T @ dh2,
+            "W1": p.T @ ((g.a_hat.T @ (dh2 @ g.params["W2"].T)) * (z1 > 0)),
+        }
+
+        for name, grad in analytic.items():
+            for index in np.ndindex(grad.shape):
+                w = g.params[name]
+                w[index] += 1e-6
+                up = loss()
+                w[index] -= 2e-6
+                down = loss()
+                w[index] += 1e-6
+                self.assertAlmostEqual((up - down) / 2e-6, grad[index], places=6)
+
+    def test_target_stage_is_hidden_and_output_is_a_probability(self):
+        from engine.ml.gnn import StageGNN
+
+        g = StageGNN(epochs=2).fit([{"Initial Access", "Execution", "Persistence"}] * 3)
+        same = g.predict({"Initial Access"}, "Initial Access", "Execution")
+        with_target = g.predict({"Initial Access", "Execution"}, "Initial Access", "Execution")
+        self.assertEqual(same, with_target)
+        self.assertTrue(0 < same < 1)
+
+
+class RunThreatLevelTests(TestCase):
+    """The run-level verdict is not a per-signal sum."""
+
+    def test_one_site_repeating_keywords_is_not_critical(self):
+        from engine.intelligence.threat_scorer import (
+            calculate_run_threat_level, calculate_threat_score
+        )
+
+        results = [
+            {"type": "keyword", "subtype": s, "value": f"{s}{i}", "source": f"https://ahmia.fi/?q={i}"}
+            for s in ("exploit", "leak", "sale", "access", "movement") for i in range(8)
+        ] + [{"type": "cve", "value": "cve-2026-1", "source": "https://ahmia.fi/?q=1"}]
+
+        self.assertEqual(calculate_threat_score(results), "CRITICAL")
+        self.assertEqual(calculate_run_threat_level(results), "HIGH")
+
+    def test_confirmed_evidence_can_reach_critical(self):
+        from engine.intelligence.threat_scorer import calculate_run_threat_level
+
+        results = [
+            {"type": "keyword", "subtype": s, "value": s, "source": "https://x.onion/a"}
+            for s in ("exploit", "leak", "sale", "access", "movement")
+        ]
+        kev = [{"type": "kev_correlation", "cve": "CVE-2021-44228"}]
+        self.assertEqual(calculate_run_threat_level(results, kev), "CRITICAL")

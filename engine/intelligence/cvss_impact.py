@@ -205,7 +205,11 @@ def assess_cvss_impact(
 
     for asset in mapped_assets:
 
-        level = CRITICALITY_TO_REQUIREMENT.get(asset["criticality"], "M")
+        # keyword signals are not assets and carry no requirement
+        if asset["criticality"] not in CRITICALITY_TO_REQUIREMENT:
+            continue
+
+        level = CRITICALITY_TO_REQUIREMENT[asset["criticality"]]
         role = asset["asset_role"]
 
         if REQUIREMENT_RANK[level] > REQUIREMENT_RANK[
@@ -213,10 +217,13 @@ def assess_cvss_impact(
         ] or role not in role_requirement:
             role_requirement[role] = level
 
+    # no identified enterprise asset means no evidence that anything
+    # valuable is affected: the Security Requirement is Low, not the
+    # Not Defined (Medium) default
     worst = max(
         role_requirement.values(),
         key=REQUIREMENT_RANK.get,
-        default="M"
+        default="L"
     )
 
     scenarios = []
@@ -246,8 +253,8 @@ def assess_cvss_impact(
             subtype,
             "assumed profile",
             SIGNAL_PROFILES[subtype],
-            role_requirement.get(subtype, "M"),
-            "asset role" if subtype in role_requirement else "default"
+            worst,
+            "worst-case asset" if role_requirement else "no asset identified"
         )
 
     cves = {r["value"].upper() for r in results if r["type"] == "cve"}
@@ -259,7 +266,7 @@ def assess_cvss_impact(
             "NVD vector",
             vector,
             worst,
-            "worst-case asset" if role_requirement else "default"
+            "worst-case asset" if role_requirement else "no asset identified"
         )
 
     scenarios.sort(key=lambda s: -s["environmental_score"])

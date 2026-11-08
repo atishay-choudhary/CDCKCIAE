@@ -6,7 +6,7 @@ is kept as the documented baseline and as the fallback when no
 trained model exists yet (NFR Reliability).
 """
 
-from engine.intelligence.threat_scorer import calculate_threat_score
+from engine.intelligence.threat_scorer import calculate_run_threat_level
 from engine.ml.classifier import predict
 
 
@@ -33,7 +33,7 @@ def assess_threat(documents, results, correlations):
     Overall level = most severe document-level prediction.
     """
 
-    baseline = calculate_threat_score(results, correlations)
+    baseline = calculate_run_threat_level(results, correlations)
 
     fallback = {
         "threat_level": baseline,

@@ -15,6 +15,8 @@ organisation's own loss data. Each factor returns its level and the
 evidence behind it, so a score can be traced back in the report.
 """
 
+from urllib.parse import urlsplit
+
 LEVELS = {1: "VERY LOW", 2: "LOW", 3: "MEDIUM", 4: "HIGH", 5: "VERY HIGH"}
 
 INTENT = {"sale", "access", "creds", "leak"}        # what attackers do with it
@@ -31,27 +33,43 @@ def _band(value, edges):
 
 
 def _risk_label(score):
-    """Risk matrix (LEF level x LM level, 1..25) to the dashboard's scale."""
+    """
+    Risk matrix (LEF level x LM level, 1..25) to the dashboard's scale.
+    CRITICAL needs a level-5 factor against a level-4 or higher one
+    (5x4 = 20); 4x4 is HIGH.
+    """
 
     if score <= 3:
         return "LOW"
 
-    if score <= 8:
+    if score <= 9:
         return "MEDIUM"
 
-    if score <= 15:
+    if score <= 16:
         return "HIGH"
 
     return "CRITICAL"
 
 
+def _site(source):
+    """The site a signal came from: many searches on one site are one source."""
+
+    return urlsplit(source or "").netloc or (source or "")
+
+
 def threat_event_frequency(signals):
 
-    n = len(signals)
+    sites = {_site(s.get("source")) for s in signals if s.get("source")}
 
-    categories = {s.get("subtype") for s in signals}
+    categories = {s.get("subtype") for s in signals if s.get("subtype")}
 
-    level = _band(n, (3, 6, 12, 20))
+    # corroboration across sites counts for more than repetition on one
+    # page, and breadth of activity for more than the number of words
+    corroboration = _band(len(sites), (2, 3, 5, 8))
+
+    breadth = _band(len(categories), (2, 3, 4, 6))
+
+    level = (corroboration + breadth + 1) // 2
 
     both = bool(categories & INTENT) and bool(categories & CAPABILITY)
 
@@ -59,20 +77,38 @@ def threat_event_frequency(signals):
         level = min(level + 1, 5)
 
     return level, {
-        "signals": n,
+        "signals": len(signals),
+        "distinct_sources": len(sites),
+        "distinct_categories": len(categories),
         "intent_and_capability_seen": both,
-        "basis": "signal count band, +1 when intent (sale/access/creds/leak) "
-                 "and capability (exploit/movement) are both present",
+        "basis": "mean of a distinct-site band and a distinct-category band, "
+                 "+1 when intent (sale/access/creds/leak) and capability "
+                 "(exploit/movement) are both present",
     }
 
 
 def vulnerability(cvss_impact, enriched_iocs):
+    """
+    Only a CVE with a real NVD vector is evidence of a vulnerability.
+    The assumed signal profiles describe what an attacker could do, which
+    the threat event frequency already covers, so they do not count here.
+    """
 
     scenarios = cvss_impact.get("scenarios", [])
 
-    top = max((s["environmental_score"] for s in scenarios), default=0.0)
+    cve_scores = [
+        s["environmental_score"] for s in scenarios
+        if s.get("source", "NVD vector") == "NVD vector"
+    ]
 
-    level = _band(top, (2, 4, 6, 8))
+    top = max(cve_scores, default=0.0)
+
+    if cve_scores:
+        level = _band(top, (2, 4, 6, 8))
+
+    else:
+        # nothing confirmed, but attacker activity was seen
+        level = 2 if scenarios else 1
 
     known = any(i.get("kev") for i in enriched_iocs)
 
@@ -81,9 +117,11 @@ def vulnerability(cvss_impact, enriched_iocs):
 
     return level, {
         "highest_cvss_environmental_score": top,
+        "confirmed_cves": len(cve_scores),
         "known_exploited_cve": known,
-        "basis": "CVSS v3.1 environmental score band, +1 for a CVE in the "
-                 "CISA KEV catalogue",
+        "basis": "environmental CVSS v3.1 score band of CVEs with an NVD "
+                 "vector, +1 for a CVE in the CISA KEV catalogue; level 2 "
+                 "when attacker activity is seen but no CVE is confirmed",
     }
 
 
@@ -146,12 +184,16 @@ def assess_business_risk(signals, consequences, cvss_impact, enriched_iocs):
 def assess_exposure(mapped_assets):
     """Asset value x how many distinct kinds of asset are touched."""
 
+    # keyword signals are unrated: only real assets count
+    assets = [
+        a for a in mapped_assets if a.get("criticality") in CRITICALITY_LEVEL
+    ]
+
     value = max(
-        (CRITICALITY_LEVEL.get(a.get("criticality"), 1) for a in mapped_assets),
-        default=1
+        (CRITICALITY_LEVEL[a["criticality"]] for a in assets), default=1
     )
 
-    kinds = {(a.get("asset_type"), a.get("asset_role")) for a in mapped_assets}
+    kinds = {(a.get("asset_type"), a.get("asset_role")) for a in assets}
 
     breadth = _band(len(kinds), (2, 4, 6, 8))
 
@@ -165,7 +207,7 @@ def assess_exposure(mapped_assets):
         "factors": {
             "asset_value": {
                 "level": value,
-                "basis": "highest criticality among the mapped assets",
+                "basis": "highest criticality among the rated assets (emails, IPs, confirmed CVEs)",
             },
             "breadth": {
                 "level": breadth,

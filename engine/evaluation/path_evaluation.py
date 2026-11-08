@@ -183,13 +183,19 @@ def edge_prediction(groups, folds=5):
 
     chunks = [groups[i::folds] for i in range(folds)]
 
-    truth, learned, uniform = [], [], []
+    from engine.ml.gnn import StageGNN
+
+    truth, learned, uniform, gnn = [], [], [], []
 
     for i, held_out in enumerate(chunks):
 
-        transitions = learn_transitions([
+        training = [
             g for j, chunk in enumerate(chunks) if j != i for g in chunk
-        ])
+        ]
+
+        transitions = learn_transitions(training)
+
+        network = StageGNN().fit(training)
 
         for stages in held_out:
 
@@ -202,6 +208,7 @@ def edge_prediction(groups, folds=5):
                     truth.append(int(b in stages))
                     learned.append(transitions[f"{a}->{b}"])
                     uniform.append(1 / len(successors))
+                    gnn.append(network.predict(stages, a, b))
 
     return {
         "edges": len(truth),
@@ -212,6 +219,10 @@ def edge_prediction(groups, folds=5):
         "baseline": {
             "auc": round(roc_auc_score(truth, uniform), 3),
             "brier": round(brier_score_loss(truth, uniform), 3)
+        },
+        "gnn": {
+            "auc": round(roc_auc_score(truth, gnn), 3),
+            "brier": round(brier_score_loss(truth, gnn), 3)
         }
     }
 
@@ -315,7 +326,7 @@ def run():
         f"\n=== Edge prediction ({edge_result['edges']} transitions, "
         f"5-fold) ==="
     )
-    for name in ("baseline", "model"):
+    for name in ("baseline", "model", "gnn"):
         print(
             f"{name:<9} AUC {edge_result[name]['auc']:.3f}  "
             f"Brier {edge_result[name]['brier']:.3f}"

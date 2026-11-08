@@ -43,10 +43,15 @@ TYPES = [
 
 SAMPLE_SIZE = 100
 SEED = 42
+MISS_LIMIT = 25  # entries listed per type in the misses view
 
 # stored with the labels when an annotator has looked at a snippet, so a
 # snippet with no entities at all still counts as labelled (empty truth)
 REVIEWED = "_reviewed"
+
+# set when the form was pre-filled with the system's own guess: those labels
+# are biased towards what the extractors already find
+ASSISTED = "_assisted"
 
 
 def export():
@@ -77,7 +82,16 @@ def export():
     print("    Label each one: label <id> <type>=a|b ...  then run: score")
 
 
-def save_labels(sample_id, values):
+def suggestions(text):
+    """The merged extractors' result as label strings, one per type."""
+
+    regex = extract_entities(text)
+    entities = merge_entities(regex, extract_named_entities(text))["entities"]
+
+    return {t: " | ".join(entities.get(t, [])) for t in TYPES}
+
+
+def save_labels(sample_id, values, assisted=False):
     """Stores one snippet's labels (every type; "" = none) as reviewed."""
 
     unknown = set(values) - set(TYPES)
@@ -87,7 +101,9 @@ def save_labels(sample_id, values):
 
     labels = {t: str(values.get(t, "")).strip() for t in TYPES}
 
-    datastore.annotation_label(TASK, sample_id, {**labels, REVIEWED: "1"})
+    datastore.annotation_label(TASK, sample_id, {
+        **labels, REVIEWED: "1", **({ASSISTED: "1"} if assisted else {})
+    })
 
     return labels
 
@@ -154,6 +170,10 @@ def score():
 
     gold_support = {t: 0 for t in TYPES + ["ALL"]}
 
+    misses = {
+        t: {"missed": [], "extra": []} for t in TYPES
+    }
+
     for row in rows:
 
         gold = {(t, v) for t in TYPES for v in _cell(row.get(t))}
@@ -166,6 +186,14 @@ def score():
             "ner": _pairs(ner),
             "merged": _pairs(merge_entities(regex, ner)["entities"]),
         }
+
+        merged_pred = predicted["merged"]
+
+        for kind, value in sorted(gold - merged_pred):
+            misses[kind]["missed"].append(value)
+
+        for kind, value in sorted(merged_pred - gold):
+            misses[kind]["extra"].append(value)
 
         for kind in TYPES + ["ALL"]:
 
@@ -185,7 +213,16 @@ def score():
 
     report = {
         "rows": len(rows),
+        "assisted_rows": sum(bool(r.get(ASSISTED)) for r in rows),
         "support": gold_support,
+        "misses": {
+            kind: {
+                key: sorted(set(values))[:MISS_LIMIT]
+                for key, values in found.items()
+            }
+            for kind, found in misses.items()
+            if found["missed"] or found["extra"]
+        },
         **{
             name: {
                 kind: dict(zip(("precision", "recall", "f1"), _prf(*c)))
@@ -212,6 +249,11 @@ def score():
         )
 
         print(f"{kind:<15}{gold_support[kind]:>5}  {cells}")
+
+    for kind, found in report["misses"].items():
+        print(f"\n[{kind}] merged result vs your labels")
+        print("  missed:", "; ".join(found["missed"]) or "-")
+        print("  extra :", "; ".join(found["extra"]) or "-")
 
     datastore.save_report("ner_evaluation", report)
 

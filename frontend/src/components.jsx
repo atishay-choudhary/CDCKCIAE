@@ -633,12 +633,14 @@ export function Evaluation({ report, onRun }) {
             <p className="muted">
               {p.edge_prediction.edges} stage-to-stage transitions, 5-fold cross-validated. The set-overlap
               scores above favour the baseline because it always returns the deepest path; this one tests
-              the learned probabilities directly.
+              the learned probabilities directly. The graph neural network also sees which other stages the actor
+              used.
             </p>
             <table>
               <thead><tr><th>System</th><th>AUC (higher is better)</th><th>Brier (lower is better)</th></tr></thead>
               <tbody>
-                {[["Baseline (uniform)", p.edge_prediction.baseline], ["Learned from ATT&CK", p.edge_prediction.model]].map(([n, m]) => (
+                {[["Baseline (uniform)", p.edge_prediction.baseline], ["Learned from ATT&CK", p.edge_prediction.model],
+                  ...(p.edge_prediction.gnn ? [["Graph neural network", p.edge_prediction.gnn]] : [])].map(([n, m]) => (
                   <tr key={n}><td>{n}</td><td>{fmt(m.auc, 3)}</td><td>{fmt(m.brier, 3)}</td></tr>
                 ))}
               </tbody>
@@ -805,16 +807,17 @@ export function AnnotateEntities({ api }) {
   const [scores, setScores] = useState(null);
   const [scoring, setScoring] = useState(false);
   const [error, setError] = useState("");
+  const [assist, setAssist] = useState(false);
 
   useEffect(() => {
-    api.get("/annotation/entities").then(setData).catch((e) => setError(e.message));
-  }, [api]);
+    api.get(`/annotation/entities${assist ? "?suggest=1" : ""}`).then(setData).catch((e) => setError(e.message));
+  }, [api, assist]);
 
   const sample = data?.samples[index];
 
   useEffect(() => {
-    if (sample) setDraft(sample.labels);
-  }, [sample?.id]);            // eslint-disable-line react-hooks/exhaustive-deps
+    if (sample) setDraft(assist && sample.suggested ? sample.suggested : sample.labels);
+  }, [sample?.id, assist]);    // eslint-disable-line react-hooks/exhaustive-deps
 
   if (error) return <p className="error" role="alert">{error}</p>;
   if (!data) return <Muted>Loading…</Muted>;
@@ -831,7 +834,7 @@ export function AnnotateEntities({ api }) {
   const save = async (labels) => {
     setError("");
     try {
-      const reply = await api.post("/annotation/entities/label", { id: sample.id, labels });
+      const reply = await api.post("/annotation/entities/label", { id: sample.id, labels, assisted: assist });
       setData((d) => ({
         ...d,
         samples: d.samples.map((s) => (s.id === sample.id ? { ...s, labels: reply.labels, reviewed: true } : s)),
@@ -868,6 +871,10 @@ export function AnnotateEntities({ api }) {
           written in the text; separate several of one kind with <b>|</b>. Leave a box empty if there is none of
           that kind. Do this without looking at what the system extracts.
         </p>
+        <label className="small">
+          <input type="checkbox" checked={assist} onChange={(e) => setAssist(e.target.checked)} />{" "}
+          Start from the system's guess (faster, but your labels will lean towards what it already finds)
+        </label>
         <blockquote className="snippet">{sample.text}</blockquote>
 
         <div className="entity-grid">
@@ -910,6 +917,12 @@ export function AnnotateEntities({ api }) {
           {scoring ? "Scoring…" : "Score now"}
         </button>
 
+        {report && report.assisted_rows > 0 && (
+          <div className="banner bad">
+            {report.assisted_rows} of {report.rows} labels started from the system's guess, so these scores
+            are optimistic.
+          </div>
+        )}
         {report && !report.ner_available && (
           <div className="banner bad">spaCy is not available in this server, so the NER column is empty.</div>
         )}
@@ -934,6 +947,16 @@ export function AnnotateEntities({ api }) {
                 </tbody>
               </table>
             </div>
+            <details>
+              <summary>What the merged result missed or invented</summary>
+              {Object.entries(report.misses || {}).map(([t, m]) => (
+                <div key={t} className="small">
+                  <strong>{t}</strong>
+                  <div>Missed: {m.missed.join("; ") || "none"}</div>
+                  <div>Extra: {m.extra.join("; ") || "none"}</div>
+                </div>
+              ))}
+            </details>
             <p className="muted small">Precision and recall are stored with the report and shown in the Evaluation tab.</p>
           </>
         )}

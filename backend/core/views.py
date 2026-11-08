@@ -598,18 +598,26 @@ def entity_samples(request):
 
     ner = _ner()
 
-    return JsonResponse({
-        "types": ner.TYPES,
-        "samples": [
-            {
-                "id": r["id"],
-                "text": r["text"],
-                "labels": {t: r.get(t, "") for t in ner.TYPES},
-                "reviewed": bool(r.get(ner.REVIEWED) or any(r.get(t) for t in ner.TYPES)),
-            }
-            for r in datastore.annotation_rows(ner.TASK)
-        ],
-    })
+    # opt-in: pre-filling from the system's own guess biases the labels
+    suggest = request.GET.get("suggest") == "1"
+
+    samples = []
+
+    for r in datastore.annotation_rows(ner.TASK):
+
+        sample = {
+            "id": r["id"],
+            "text": r["text"],
+            "labels": {t: r.get(t, "") for t in ner.TYPES},
+            "reviewed": bool(r.get(ner.REVIEWED) or any(r.get(t) for t in ner.TYPES)),
+        }
+
+        if suggest and not sample["reviewed"]:
+            sample["suggested"] = ner.suggestions(r["text"])
+
+        samples.append(sample)
+
+    return JsonResponse({"types": ner.TYPES, "samples": samples})
 
 
 @api(["POST"])
@@ -634,7 +642,9 @@ def entity_label(request):
         return JsonResponse({"error": "labels must be text values"}, status=400)
 
     try:
-        saved = _ner().save_labels(str(body.get("id", "")), labels)
+        saved = _ner().save_labels(
+            str(body.get("id", "")), labels, assisted=body.get("assisted") is True
+        )
 
     except ValueError as error:
         return JsonResponse({"error": str(error)}, status=400)
