@@ -10,6 +10,8 @@ export default defineConfig({
     outDir: "../backend/core/frontend_dist",
     emptyOutDir: true,
     assetsDir: "",
+    // the CSP allows fonts only from this origin, so nothing may be inlined as data:
+    assetsInlineLimit: 0,
   },
   server: {
     proxy: Object.fromEntries(

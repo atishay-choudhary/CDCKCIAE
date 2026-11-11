@@ -3,6 +3,7 @@
 // collected content is ever interpreted.
 
 import { useEffect, useMemo, useState } from "react";
+import { Mark } from "./site.jsx";
 
 export const STAGES = [
   "Reconnaissance",
@@ -13,6 +14,9 @@ export const STAGES = [
   "Command and Control",
   "Actions on Objectives",
 ];
+
+// "HIGH" from the API is shown as "High"
+export const title = (value) => (value ? value[0] + value.slice(1).toLowerCase() : value);
 
 export const fmt = (value, digits = 2) =>
   typeof value === "number" ? value.toFixed(digits) : "n/a";
@@ -40,34 +44,6 @@ export function TorBadge({ tor }) {
   );
 }
 
-export function RunPanel({ onStart, error, busy }) {
-  const submit = (event) => {
-    event.preventDefault();
-    const form = new FormData(event.target);
-    onStart({
-      mode: form.get("mode"),
-      keywords: form.get("keywords"),
-      allow_fallback: form.get("fallback") === "on",
-    });
-  };
-  return (
-    <form className="run" onSubmit={submit}>
-      <select name="mode" defaultValue="mock" aria-label="Source">
-        <option value="mock">Mock corpus</option>
-        <option value="live">Live dark web (Tor)</option>
-      </select>
-      <input type="text" name="keywords" aria-label="Keywords"
-             placeholder="Keywords, separated by commas (live)" />
-      <label className="check">
-        <input type="checkbox" name="fallback" defaultChecked />
-        Use the mock corpus if Tor or the sources are unreachable
-      </label>
-      <button type="submit" disabled={busy}>Start collection</button>
-      {error && <span className="error" role="alert">{error}</span>}
-    </form>
-  );
-}
-
 const OUTCOME_LABEL = {
   results: "results",
   no_matches: "no matches",
@@ -87,9 +63,9 @@ export function JobList({ jobs, selected, onSelect }) {
           <li key={job.job_id}
               className={`job t-${job.threat_level || ""} ${job.job_id === selected ? "sel" : ""}`}
               onClick={() => onSelect(job.job_id)}>
-            <span className="tick" style={{ background: job.threat_level ? "var(--t)" : undefined }} />
+            <span className="tick" />
             <span>
-              <b>{job.threat_level || "No verdict"}</b>
+              <b>{title(job.threat_level) || "No verdict"}</b>
               <small>
                 {job.mode}{job.source_mode && job.source_mode !== job.mode ? ` → ${job.source_mode}` : ""}
                 {" · "}{job.started_at?.slice(5, 16).replace("T", " ")}
@@ -108,7 +84,7 @@ const ACTIVE = ["queued", "running"];
 // ---------------------------------------------------------------- case
 
 export function CaseHeader({ job, actions }) {
-  if (!job) return <Muted>Pick a case on the left, or start a new collection.</Muted>;
+  if (!job) return <Muted>No case is open. Start a collection, or open one from the list below.</Muted>;
 
   const running = ACTIVE.includes(job.status);
   let banner = null;
@@ -122,7 +98,7 @@ export function CaseHeader({ job, actions }) {
   return (
     <div className={`verdict t-${job.threat_level || ""}`}>
       <div className="verdict-word">
-        <span className="level">{job.threat_level || "No verdict"}</span>
+        <span className="level">{title(job.threat_level) || "No verdict"}</span>
         <span className="where">
           {job.mode}{ran}, started {job.started_at?.replace("T", " ").slice(0, 16)}
           {job.keywords?.length ? `, keywords: ${job.keywords.join(", ")}` : ""}
@@ -983,33 +959,43 @@ export function Login({ onSubmit, onRegister, signupAllowed, onToken }) {
     }
   };
 
+  const switchTo = (value) => { setCreating(value); setError(""); };
+
   return (
-    <form className="login" onSubmit={submit}>
-      <h1>CDKCIAE</h1>
-      <p className="muted small">
-        {creating ? "Create an account to run and keep your own collections." : "Sign in to view your collections and reports."}
-      </p>
-      <label>User name
-        <input type="text" value={user} autoComplete="username"
-               onChange={(e) => setUser(e.target.value)} required />
-      </label>
-      <label>Password
-        <input type="password" value={password} autoComplete={creating ? "new-password" : "current-password"}
-               onChange={(e) => setPassword(e.target.value)} required />
-      </label>
-      {creating && <p className="muted small">User name: 3-30 letters, digits, . _ - . Password: at least 8 characters, not a common one.</p>}
-      {error && <div className="banner bad">{error}</div>}
-      <button type="submit">{creating ? "Create account" : "Sign in"}</button>
-      {signupAllowed && (
-        <button type="button" className="quiet"
-          onClick={() => { setCreating(!creating); setError(""); }}>
-          {creating ? "I already have an account" : "Create an account"}
-        </button>
-      )}
-      <button type="button" className="quiet"
-        onClick={() => { const t = window.prompt("API token (CDKCIAE_API_TOKEN):"); if (t) onToken(t); }}>
-        Use an API token instead
-      </button>
-    </form>
+    <div className="signin">
+      <section className="signin-art dots">
+        <a className="brand" href="#/home"><Mark />CDKCIAE</a>
+        <div>
+          <h1>Your cases stay yours.</h1>
+          <p className="lede">Each account sees only the collections it started. Sign in to pick up where you left off.</p>
+        </div>
+        <p className="muted small">An academic project. Accounts are for evaluators and the project team.</p>
+      </section>
+      <section className="signin-form">
+        <form className="glass ice login" onSubmit={submit}>
+          {signupAllowed && (
+            <div className="seg" role="group" aria-label="Sign in or create an account">
+              <button type="button" aria-pressed={!creating} onClick={() => switchTo(false)}>Sign in</button>
+              <button type="button" aria-pressed={creating} onClick={() => switchTo(true)}>Create account</button>
+            </div>
+          )}
+          <label className="field">User name
+            <input type="text" value={user} autoComplete="username"
+                   onChange={(e) => setUser(e.target.value)} required />
+          </label>
+          <label className="field">Password
+            <input type="password" value={password} autoComplete={creating ? "new-password" : "current-password"}
+                   onChange={(e) => setPassword(e.target.value)} required />
+          </label>
+          {creating && <p className="muted small">User name: 3-30 letters, digits, . _ - . Password: at least 8 characters, not a common one.</p>}
+          {error && <p className="error" role="alert">{error}</p>}
+          <button type="submit" className="btn">{creating ? "Create account" : "Sign in"}</button>
+          <p className="muted small">
+            Have an access token instead?{" "}
+            <a href="#/signin" onClick={(e) => { e.preventDefault(); const t = window.prompt("API token (CDKCIAE_API_TOKEN):"); if (t) onToken(t); }}>Use a token</a>
+          </p>
+        </form>
+      </section>
+    </div>
   );
 }

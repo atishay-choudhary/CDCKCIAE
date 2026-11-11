@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { download, get, post, register, setAuthHandler, signIn, signOut, storeToken, whoAmI } from "./api.js";
 const api = { get, post };
-import {
-  Annotate, AnnotateEntities, Artifacts, AttackGraph, CaseHeader, Evaluation, JobList, KillChain,
-  Login, Muted, Paths, Risk, RunPanel, Section, SourceReport, TorBadge,
-} from "./components.jsx";
+import { Login } from "./components.jsx";
+import { ArtifactsPage, Collect, EvaluationPage, Home, LabelPage, Results } from "./pages.jsx";
+import { useRoute } from "./router.js";
+import { SiteFooter, SiteNav } from "./site.jsx";
 
 const ACTIVE = ["queued", "running"];
 
@@ -23,8 +23,7 @@ export default function App() {
   const [error, setError] = useState("");
   const [filters, setFilters] = useState({ source: "", stage: "", since: "" });
   const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState("overview");
-  const [labelMode, setLabelMode] = useState("classes");
+  const [route, go] = useRoute();
   const [needLogin, setNeedLogin] = useState(false);
   const [who, setWho] = useState(null);
 
@@ -68,6 +67,11 @@ export default function App() {
     const timer = setInterval(poll, 15000);
     return () => clearInterval(timer);
   }, [loadJobs, loadEvaluation]);
+
+  // open the newest case once the list arrives, so Results is never empty by default
+  useEffect(() => {
+    if (!jobId && jobs.length) setJobId(jobs[0].job_id);
+  }, [jobs, jobId]);
 
   // the selected job, refreshed while it is still running
   useEffect(() => {
@@ -131,137 +135,46 @@ export default function App() {
     }
   };
 
-  const finished = job && !ACTIVE.includes(job.status);
-  const hasResults = finished && job.artifact_count > 0;
-  const none = !job
-    ? "Nothing open. Start a collection above, or open an earlier one from Cases."
-    : finished && !hasResults
-      ? "Nothing to show: this collection produced no results (see the notes above)."
-      : "Waiting for the collection to finish…";
+  const onExport = () => download("/reports/export", { job_id: jobId }, `cdkciae_${jobId}.pdf`)
+    .catch((e) => setError(e.message));
+  const onExportArtifact = () => download("/reports/export", { artifact_id: artifactId }, `cdkciae_artifact_${artifactId}.pdf`)
+    .catch((e) => setError(e.message));
 
-  const tabs = [
-    ["overview", "Situation"],
-    ["artifacts", `Artifacts${job?.artifact_count ? ` (${job.artifact_count})` : ""}`],
-    ["evaluation", "Evaluation"],
-    ["label", "Label"],
-  ];
+  const afterAuth = () => { window.location.hash = "#/collect"; window.location.reload(); };
+  const login = (
+    <Login
+      onSubmit={async (user, password) => { await signIn(user, password); afterAuth(); }}
+      onRegister={async (user, password) => { await register(user, password); afterAuth(); }}
+      signupAllowed={who?.signup_allowed}
+      onToken={(value) => { storeToken(value); afterAuth(); }}
+    />
+  );
 
-  if (needLogin) {
-    return (
-      <Login
-        onSubmit={async (user, password) => {
-          await signIn(user, password);
-          window.location.reload();
-        }}
-        onRegister={async (user, password) => {
-          await register(user, password);
-          window.location.reload();
-        }}
-        signupAllowed={who?.signup_allowed}
-        onToken={(value) => { storeToken(value); window.location.reload(); }}
-      />
-    );
-  }
+  // the landing page is public; every other page needs a session
+  const locked = needLogin && route !== "home";
+  if (route === "signin" || locked) return login;
+
+  const page = {
+    home: <Home />,
+    collect: <Collect tor={tor} job={job} jobs={jobs} jobId={jobId} onStart={start} onOpen={setJobId}
+                      error={error} busy={busy} go={go} />,
+    results: <Results job={job} jobs={jobs} jobId={jobId} onOpen={setJobId} graph={graph} risk={risk}
+                      artifact={artifact} mapping={mapping} onExport={onExport} go={go} />,
+    artifacts: <ArtifactsPage job={job} list={artifacts} filters={filters} setFilters={setFilters}
+                              selected={artifactId} onSelect={setArtifactId} detail={artifact} onExport={onExportArtifact} />,
+    evaluation: <EvaluationPage report={evaluation} onRun={runEvaluation} />,
+    label: <LabelPage api={api} />,
+  }[route];
 
   return (
-    <div className="shell">
-      <header className="topbar">
-        <div className="brand">
-          <b>CDKCIAE</b>
-          <span>Kill-chain impact assessment</span>
-        </div>
-        <RunPanel onStart={start} error={error} busy={busy} />
-        <TorBadge tor={tor} />
-        {who?.authenticated && (
-          <div className="account">
-            <span>Signed in as <b>{who.username}</b></span>
-            {who.is_staff && <a className="adminlink" href="/admin/">Admin</a>}
-            <button type="button" className="signout"
-              onClick={() => signOut().then(() => window.location.reload())}>
-              Sign out
-            </button>
-          </div>
-        )}
-      </header>
-
-      <aside className="cases">
-        <h2>Cases</h2>
-        <JobList jobs={jobs} selected={jobId} onSelect={setJobId} />
-      </aside>
-
-      <main className="main">
-        <CaseHeader
-          job={job}
-          actions={hasResults && (
-            <button type="button" className="quiet"
-              onClick={() => download("/reports/export", { job_id: jobId }, `cdkciae_${jobId}.pdf`)
-                .catch((e) => setError(e.message))}>
-              Export PDF report
-            </button>
-          )}
-        />
-
-        <nav className="tabs" role="tablist">
-          {tabs.map(([id, label]) => (
-            <button key={id} type="button" role="tab" aria-selected={tab === id}
-              className={tab === id ? "on" : ""} onClick={() => setTab(id)}>{label}</button>
-          ))}
-        </nav>
-
-        {tab === "overview" && (
-          <>
-            <Section title="Kill chain" note="The seven stages an intrusion moves through. Tall columns were found in the collected text; height shows confidence.">
-              {hasResults ? <KillChain job={job} artifact={artifact} mapping={mapping} /> : <Muted>{none}</Muted>}
-            </Section>
-            <div className="two">
-              <Section title="Risk score" note="CVSS v3.1 environmental, built from the signals found.">
-                {hasResults ? <Risk risk={risk} fair={job.business_risk} exposure={job.enterprise_exposure} /> : <Muted>{none}</Muted>}
-              </Section>
-              <Section title="Predicted attack paths" note="Most likely routes from where the attacker is seen.">
-                {hasResults ? <Paths graph={graph} /> : <Muted>{none}</Muted>}
-              </Section>
-            </div>
-            <Section title="Attack graph" note="Red outlines mark the stages most paths pass through.">
-              {hasResults ? <AttackGraph graph={graph} /> : <Muted>{none}</Muted>}
-            </Section>
-            {job?.source_report?.length > 0 && (
-              <Section title="What each source returned">
-                <SourceReport rows={job.source_report} />
-              </Section>
-            )}
-          </>
-        )}
-
-        {tab === "artifacts" && (
-          <Section title="Extracted artifacts">
-            {job ? (
-              <Artifacts list={artifacts} filters={filters} setFilters={setFilters}
-                selected={artifactId} onSelect={setArtifactId} detail={artifact}
-                onExport={() => download("/reports/export", { artifact_id: artifactId }, `cdkciae_artifact_${artifactId}.pdf`)
-                  .catch((e) => setError(e.message))} />
-            ) : <Muted>Start a collection to see what it found.</Muted>}
-          </Section>
-        )}
-
-        {tab === "label" && (
-          <Section title="Label dark-web snippets" note="Your own labels are the only test of the models on real dark-web text.">
-            <div className="row modes" role="tablist">
-              {[["classes", "Severity and stage"], ["entities", "Entities"]].map(([id, text]) => (
-                <button key={id} type="button" role="tab" aria-selected={labelMode === id}
-                  className={`choice ${labelMode === id ? "on" : ""}`}
-                  onClick={() => setLabelMode(id)}>{text}</button>
-              ))}
-            </div>
-            {labelMode === "classes" ? <Annotate api={api} /> : <AnnotateEntities api={api} />}
-          </Section>
-        )}
-
-        {tab === "evaluation" && (
-          <Section title="Model evaluation" note="How the trained models compare with the original rule-based scorer.">
-            <Evaluation report={evaluation} onRun={runEvaluation} />
-          </Section>
-        )}
+    <div className="site">
+      <SiteNav route={route} go={go} who={who} signedOut={needLogin || (who?.login_required && !who.authenticated)}
+               onSignOut={() => signOut().then(() => window.location.reload())} />
+      <main>
+        {error && route !== "collect" && <div className="wrap"><p className="banner bad" role="alert">{error}</p></div>}
+        {page}
       </main>
+      <SiteFooter />
     </div>
   );
 }
