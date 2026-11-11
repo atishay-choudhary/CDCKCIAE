@@ -4,6 +4,7 @@ for the C.D.K.C.I.A.E
 Threat Intelligence Utility.
 
 Run " $env:CDKCIAE_REQUIRE_LOGIN = "1" " before runserver to enable login
+tree -L 3 -I "node_modules|venv|.venv|__pycache__|dist|build|.git|migrations"
 """
 
 
