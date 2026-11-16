@@ -307,7 +307,7 @@ class EvaluationRecord(models.Model):
     )
     ground_truth_label = models.CharField(max_length=64)
     predicted_label = models.CharField(max_length=64)
-    module = models.CharField(max_length=16)           # classifier / path
+    module = models.CharField(max_length=32)           # classifier / path
 
     class Meta:
         db_table = "evaluation_record"
@@ -428,6 +428,29 @@ class CrawlSource(models.Model):
 
     class Meta:
         db_table = "crawl_source"
+        ordering = ["id"]
+
+
+class WatchItem(models.Model):
+    """
+    A domain, e-mail address, IP address or name the user wants watched
+    (engine/intelligence/watchlist.py). When it appears in collected text
+    it becomes a rated asset, so exposure and business risk describe the
+    organisation being monitored. owner null = used without signing in.
+    """
+
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.CASCADE, related_name="watch_items",
+        db_column="owner_id"
+    )
+    kind = models.CharField(max_length=8)             # domain/email/ip/name
+    value = models.CharField(max_length=128)
+    criticality = models.CharField(max_length=8, default="HIGH")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "watch_item"
         ordering = ["id"]
 
 

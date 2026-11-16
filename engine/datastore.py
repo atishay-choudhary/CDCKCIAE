@@ -125,6 +125,11 @@ def crawl_sources(kind="live"):
     return get().crawl_sources(kind)
 
 
+def watchlist():
+    """[{"kind", "value", "criticality"}, ...] of the user running the job."""
+    return get().watchlist()
+
+
 def mock_page(url):
     return get().mock_page(url)
 

@@ -1,6 +1,7 @@
 // The seven pages. Data and handlers come from App; the pieces that draw
 // collected content live in components.jsx.
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { homeMotion, useMotion, verdictEnter } from "./motion.js";
 import { CREDITS, EVIDENCE, STANDARDS } from "./credits.js";
 import {
   Annotate, AnnotateEntities, Artifacts, AttackGraph, CaseHeader, Evaluation, JobList, KillChain,
@@ -57,7 +58,7 @@ function Credits() {
     institution && [institution, [programme, year].filter(Boolean).join(". ")],
   ].filter(Boolean);
   return (
-    <div className="glass hot credits">
+    <div className="glass hot credits" data-reveal>
       <h2>Built by</h2>
       <div className="grid2">
         <div className="stack">
@@ -78,8 +79,10 @@ function Credits() {
 }
 
 export function Home() {
+  const root = useRef(null);
+  useMotion(root, homeMotion, []);
   return (
-    <>
+    <div ref={root}>
       <section className="hero dots">
         <div className="wrap">
           <h1>See where an attack stands in the kill chain, and what it would cost.</h1>
@@ -95,13 +98,13 @@ export function Home() {
 
       <section className="band">
         <div className="wrap grid2 top">
-          <div>
+          <div data-reveal>
             <h2>From raw pages to a decision you can defend</h2>
             <p className="muted">Every number in a result can be traced back to the text, the model or the standard that produced it.</p>
           </div>
           <ol className="steps">
             {STEPS.map(([title, text], i) => (
-              <li key={title} className={i === STEPS.length - 1 ? "last" : ""}><h3>{title}</h3><p className="muted">{text}</p></li>
+              <li key={title} data-reveal className={i === STEPS.length - 1 ? "last" : ""}><h3>{title}</h3><p className="muted">{text}</p></li>
             ))}
           </ol>
         </div>
@@ -109,9 +112,9 @@ export function Home() {
 
       <section className="band">
         <div className="wrap">
-          <h2>Checked against real data, not assumed</h2>
-          <p className="muted">Each model is scored on text it was not trained on. Where a result is still weak, the page says so.</p>
-          <div className="glass evidence">
+          <h2 data-reveal>Checked against real data, not assumed</h2>
+          <p className="muted" data-reveal>Each model is scored on text it was not trained on. Where a result is still weak, the page says so.</p>
+          <div className="glass evidence" data-reveal>
             {EVIDENCE.map((row) => (
               <div className="ev" key={row.title}>
                 <div><h3>{row.title}</h3><p className="muted small">{row.note}</p></div>
@@ -131,21 +134,21 @@ export function Home() {
 
       <section className="band">
         <div className="wrap">
-          <h2>Built on public standards</h2>
+          <h2 data-reveal>Built on public standards</h2>
           <div className="grid3">
-            {STANDARDS.map(([name, text]) => <div key={name}><h3>{name}</h3><p className="muted small">{text}</p></div>)}
+            {STANDARDS.map(([name, text]) => <div key={name} data-reveal><h3>{name}</h3><p className="muted small">{text}</p></div>)}
           </div>
         </div>
       </section>
 
       <section className="band last"><div className="wrap"><Credits /></div></section>
-    </>
+    </div>
   );
 }
 
 // ------------------------------------------------------------- collect
 
-export function Collect({ tor, job, jobs, jobId, onStart, onOpen, error, busy, go }) {
+export function Collect({ tor, job, jobs, jobId, onStart, onOpen, error, busy, go, watch, watchError, onWatchAdd, onWatchRemove }) {
   const [mode, setMode] = useState("live");
   const submit = (event) => {
     event.preventDefault();
@@ -209,7 +212,71 @@ export function Collect({ tor, job, jobs, jobId, onStart, onOpen, error, busy, g
           <JobList jobs={jobs} selected={jobId} onSelect={(id) => { onOpen(id); go("results"); }} />
         </section>
       </div>
+
+      <Watchlist watch={watch} error={watchError} onAdd={onWatchAdd} onRemove={onWatchRemove} />
     </div>
+  );
+}
+
+const WATCH_KINDS = {
+  domain: ["Domain", "example.com"],
+  email: ["E-mail address", "name@example.com"],
+  ip: ["IP address", "203.0.113.7"],
+  name: ["Name", "Company or product name"],
+};
+
+function Watchlist({ watch, error, onAdd, onRemove }) {
+  const [kind, setKind] = useState("domain");
+  const submit = async (event) => {
+    event.preventDefault();
+    const form = event.target;
+    const data = new FormData(form);
+    if (await onAdd({ kind, value: data.get("value"), criticality: data.get("criticality") })) form.reset();
+  };
+  const items = watch?.items || [];
+  return (
+    <section className="watchlist" aria-labelledby="watch-h">
+      <h2 id="watch-h">Your watchlist</h2>
+      <p className="muted">Tell CDKCIAE what is yours: domains, e-mail addresses, IP addresses and names. When one appears in
+        collected text it becomes a rated asset, so exposure and business risk describe your organisation. Items that
+        are not found change nothing.</p>
+      <form className="glass watchform" onSubmit={submit}>
+        <label className="field">Type
+          <select value={kind} onChange={(e) => setKind(e.target.value)}>
+            {Object.entries(WATCH_KINDS).map(([id, [label]]) => <option key={id} value={id}>{label}</option>)}
+          </select>
+        </label>
+        <label className="field grow">Value
+          <input type="text" name="value" placeholder={WATCH_KINDS[kind][1]} required />
+        </label>
+        <label className="field">Importance
+          <select name="criticality" defaultValue="HIGH">
+            {(watch?.criticalities?.length ? watch.criticalities : ["LOW", "MEDIUM", "HIGH", "CRITICAL"]).map((c) => (
+              <option key={c} value={c}>{c[0] + c.slice(1).toLowerCase()}</option>
+            ))}
+          </select>
+        </label>
+        <button type="submit" className="btn">Add to watchlist</button>
+        {error && <p className="error" role="alert">{error}</p>}
+      </form>
+      {items.length > 0 ? (
+        <div className="scroll">
+          <table>
+            <thead><tr><th>Type</th><th>Value</th><th>Importance</th><th><span className="sr">Remove</span></th></tr></thead>
+            <tbody>
+              {items.map((item) => (
+                <tr key={item.id}>
+                  <td>{WATCH_KINDS[item.kind]?.[0] || item.kind}</td>
+                  <td className="mono">{item.value}</td>
+                  <td>{item.criticality[0] + item.criticality.slice(1).toLowerCase()}</td>
+                  <td><button type="button" className="quiet small" onClick={() => onRemove(item.id)}>Remove</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : <Muted>Nothing on your watchlist yet. The limit is {watch?.limit || 50} items.</Muted>}
+    </section>
   );
 }
 
@@ -222,8 +289,10 @@ export function Results({ job, jobs, jobId, onOpen, graph, risk, artifact, mappi
     ? "Nothing open. Start a collection, or open an earlier case below."
     : finished ? "Nothing to show: this collection produced no results (see the notes above)."
       : "Waiting for the collection to finish…";
+  const root = useRef(null);
+  useMotion(root, verdictEnter, [job?.job_id, job?.status]);
   return (
-    <div className="wrap page">
+    <div className="wrap page" ref={root}>
       <CaseHeader job={job}
         actions={has && <button type="button" className="quiet" onClick={onExport}>Export PDF report</button>} />
       <details className="cases" open={!job}>
@@ -236,6 +305,24 @@ export function Results({ job, jobs, jobId, onOpen, graph, risk, artifact, mappi
         note="The seven stages an intrusion moves through. Solid columns were found in the collected text; height shows confidence.">
         {has ? <KillChain job={job} artifact={artifact} mapping={mapping} /> : <Muted>{none}</Muted>}
       </Section>
+      {has && job.watch_hits?.length > 0 && (
+        <Section title="Your watched items found"
+          note="These appear in the collected text and are rated as you rated them, so they drive the exposure score.">
+          <div className="scroll">
+            <table>
+              <thead><tr><th>Type</th><th>Value</th><th>Importance</th><th>Mentions</th></tr></thead>
+              <tbody>
+                {job.watch_hits.map((h) => (
+                  <tr key={`${h.kind}:${h.value}`}>
+                    <td>{h.kind}</td><td className="mono">{h.value}</td>
+                    <td>{title(h.criticality)}</td><td>{h.mentions}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Section>
+      )}
       <div className="grid2 top">
         <Section title="Risk score" note="CVSS v3.1 environmental, built from the signals found.">
           {has ? <Risk risk={risk} fair={job.business_risk} exposure={job.enterprise_exposure} /> : <Muted>{none}</Muted>}

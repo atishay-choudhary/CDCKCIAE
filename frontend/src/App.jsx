@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { pageEnter, useMotion } from "./motion.js";
 import { download, get, post, register, setAuthHandler, signIn, signOut, storeToken, whoAmI } from "./api.js";
 const api = { get, post };
 import { Login } from "./components.jsx";
@@ -19,11 +20,15 @@ export default function App() {
   const [mapping, setMapping] = useState(null);
   const [risk, setRisk] = useState(null);
   const [evaluation, setEvaluation] = useState(null);
+  const [watch, setWatch] = useState({ items: [], kinds: [], criticalities: [] });
+  const [watchError, setWatchError] = useState("");
   const [tor, setTor] = useState(null);
   const [error, setError] = useState("");
   const [filters, setFilters] = useState({ source: "", stage: "", since: "" });
   const [busy, setBusy] = useState(false);
   const [route, go] = useRoute();
+  const main = useRef(null);
+  useMotion(main, (root) => { if (route !== "home") pageEnter(root); }, [route]);
   const [needLogin, setNeedLogin] = useState(false);
   const [who, setWho] = useState(null);
 
@@ -42,6 +47,35 @@ export default function App() {
     const timer = setInterval(loadEvaluation, 3000);
     return () => clearInterval(timer);
   }, [evaluation?.state, loadEvaluation]);
+
+  const loadWatch = useCallback(
+    () => get("/watchlist").then(setWatch).catch(() => {}),
+    []
+  );
+
+  useEffect(() => { loadWatch(); }, [loadWatch]);
+
+  const addWatch = async (item) => {
+    setWatchError("");
+    try {
+      await post("/watchlist", item);
+      await loadWatch();
+      return true;
+    } catch (e) {
+      setWatchError(e.message);
+      return false;
+    }
+  };
+
+  const removeWatch = async (id) => {
+    setWatchError("");
+    try {
+      await post("/watchlist/delete", { id });
+      await loadWatch();
+    } catch (e) {
+      setWatchError(e.message);
+    }
+  };
 
   const runEvaluation = async () => {
     try {
@@ -157,7 +191,8 @@ export default function App() {
   const page = {
     home: <Home />,
     collect: <Collect tor={tor} job={job} jobs={jobs} jobId={jobId} onStart={start} onOpen={setJobId}
-                      error={error} busy={busy} go={go} />,
+                      error={error} busy={busy} go={go}
+                      watch={watch} watchError={watchError} onWatchAdd={addWatch} onWatchRemove={removeWatch} />,
     results: <Results job={job} jobs={jobs} jobId={jobId} onOpen={setJobId} graph={graph} risk={risk}
                       artifact={artifact} mapping={mapping} onExport={onExport} go={go} />,
     artifacts: <ArtifactsPage job={job} list={artifacts} filters={filters} setFilters={setFilters}
@@ -170,7 +205,7 @@ export default function App() {
     <div className="site">
       <SiteNav route={route} go={go} who={who} signedOut={needLogin || (who?.login_required && !who.authenticated)}
                onSignOut={() => signOut().then(() => window.location.reload())} />
-      <main>
+      <main ref={main}>
         {error && route !== "collect" && <div className="wrap"><p className="banner bad" role="alert">{error}</p></div>}
         {page}
       </main>

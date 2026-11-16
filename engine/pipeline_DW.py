@@ -136,6 +136,7 @@ from engine.intelligence.fair_risk import (
 # ASSET MAPPING ENGINE
 # ============================================================
 
+from engine.intelligence.watchlist import find_hits as find_watch_hits
 from engine.intelligence.asset_mapper import (
 
     map_assets,
@@ -613,11 +614,16 @@ def run_darkweb_pipeline(keywords):
     # ASSET MAPPING
     # ========================================================
 
+    # the user's own watched domains, addresses and names found in the text
+    watch_hits = find_watch_hits(all_documents)
+
     mapped_assets = map_assets(
 
         results,
 
-        enriched_iocs
+        enriched_iocs,
+
+        watch_hits
     )
 
     asset_summary = summarize_assets(
@@ -918,5 +924,7 @@ def run_darkweb_pipeline(keywords):
 
         "asset_summary": asset_summary,
 
-        "enterprise_exposure": enterprise_exposure
+        "enterprise_exposure": enterprise_exposure,
+
+        "watch_hits": watch_hits
     }

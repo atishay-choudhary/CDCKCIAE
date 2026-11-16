@@ -97,7 +97,7 @@ class ValidationTests(TestCase):
 
         res = self.client.get("/")
 
-        self.assertContains(res, "CDKCIAE Dashboard")
+        self.assertContains(res, "<title>CDKCIAE</title>")
 
         self.assertIn("script-src 'self'", res["Content-Security-Policy"])
 
@@ -1050,3 +1050,145 @@ class RunThreatLevelTests(TestCase):
         ]
         kev = [{"type": "kev_correlation", "cve": "CVE-2021-44228"}]
         self.assertEqual(calculate_run_threat_level(results, kev), "CRITICAL")
+
+
+class EntityNoiseFilterTests(TestCase):
+
+    def test_domains_must_end_in_a_real_tld(self):
+        from engine.nlp.entity_extractor import extract_entities
+
+        text = (
+            "see org.minidns.record, run exploit.py, dump.zip, host.invalid, "
+            "v1.2.3, Example.COM and example.com, shop.onion, mail.example.co.uk"
+        )
+
+        domains = extract_entities(text)["domains"]
+
+        self.assertCountEqual(
+            [d.lower() for d in domains],
+            ["example.com", "shop.onion", "mail.example.co.uk"],
+        )
+
+    def test_named_entity_noise_is_dropped(self):
+        from engine.nlp.entity_filters import keep_named_entity
+
+        for noise in ("Exploit", "Initial Access", "btc", "a@b.com", "CVE-2024-1234",
+                      "abc.onion", "example.com", "IT", "42"):
+            self.assertFalse(keep_named_entity(noise), noise)
+
+        for real in ("Microsoft", "Monero Gateway", "Mura", "US", "New York"):
+            self.assertTrue(keep_named_entity(real), real)
+
+
+class WatchlistTests(DataTestCase):
+    """Watched items become rated assets only when they appear in the text."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+        cls.ann = User.objects.create_user("ann", password="s3cret-pass")
+        cls.bob = User.objects.create_user("bob", password="s3cret-pass")
+
+    def setUp(self):
+        # session requests that change data must carry the site's header
+        self.client.defaults["HTTP_X_REQUESTED_WITH"] = "cdkciae"
+
+    def as_user(self, name):
+        self.client.logout()
+        self.assertTrue(self.client.login(username=name, password="s3cret-pass"))
+
+    def add(self, **body):
+        return post(self.client, "/watchlist", body)
+
+    def test_validation(self):
+        self.as_user("ann")
+        for body in (
+            {"kind": "domain", "value": "org.minidns.record"},
+            {"kind": "ip", "value": "999.1.1.1"},
+            {"kind": "email", "value": "nobody"},
+            {"kind": "name", "value": "ab"},
+            {"kind": "colour", "value": "red"},
+            {"kind": "name", "value": "Acme Corp", "criticality": "EXTREME"},
+        ):
+            self.assertEqual(self.add(**body).status_code, 400, body)
+
+    def test_add_list_update_delete(self):
+        self.as_user("ann")
+        res = self.add(kind="domain", value="WWW.Credit-Reporting.com", criticality="critical")
+        self.assertEqual(res.status_code, 201)
+        item = res.json()
+        self.assertEqual((item["value"], item["criticality"]), ("credit-reporting.com", "CRITICAL"))
+
+        again = self.add(kind="domain", value="credit-reporting.com", criticality="low")
+        self.assertEqual((again.status_code, again.json()["id"]), (200, item["id"]))
+        self.assertEqual(self.client.get("/watchlist").json()["items"][0]["criticality"], "LOW")
+
+        self.assertEqual(post(self.client, "/watchlist/delete", {"id": item["id"]}).status_code, 200)
+        self.assertEqual(self.client.get("/watchlist").json()["items"], [])
+        self.assertEqual(post(self.client, "/watchlist/delete", {"id": item["id"]}).status_code, 404)
+
+    def test_lists_are_private_and_capped(self):
+        self.as_user("ann")
+        item = self.add(kind="name", value="Acme Corp").json()
+        self.as_user("bob")
+        self.assertEqual(self.client.get("/watchlist").json()["items"], [])
+        self.assertEqual(post(self.client, "/watchlist/delete", {"id": item["id"]}).status_code, 404)
+
+        from core.models import WatchItem
+
+        WatchItem.objects.bulk_create(
+            WatchItem(owner=self.bob, kind="name", value=f"Name {i:03}") for i in range(50)
+        )
+        self.assertEqual(self.add(kind="name", value="One too many").status_code, 400)
+
+    def test_mapper_rates_hits_as_the_user_did(self):
+        from engine.intelligence.asset_mapper import calculate_enterprise_exposure, map_assets
+        from engine.intelligence.watchlist import find_hits
+
+        items = [
+            {"kind": "domain", "value": "credit-reporting.com", "criticality": "CRITICAL"},
+            {"kind": "ip", "value": "185.12.44.1", "criticality": "HIGH"},   # only a prefix of .10
+            {"kind": "name", "value": "Never Mentioned Ltd", "criticality": "CRITICAL"},
+        ]
+        text = ["mail a@credit-reporting.com, dump at 185.12.44.10"]
+
+        hits = find_hits(text, items)
+
+        self.assertEqual([h["value"] for h in hits], ["credit-reporting.com"])
+
+        assets = map_assets([], None, hits)
+
+        self.assertEqual(
+            [(a["asset"], a["asset_type"], a["criticality"]) for a in assets],
+            [("credit-reporting.com", "watch", "CRITICAL")],
+        )
+        self.assertEqual(calculate_enterprise_exposure(assets)["exposure_score"], 10)
+
+    def test_job_uses_only_the_owners_list(self):
+        from core.models import WatchItem
+
+        # leak1.html mentions credit-reporting.com and 185.12.44.10
+        WatchItem.objects.create(owner=self.ann, kind="domain", value="credit-reporting.com", criticality="CRITICAL")
+        WatchItem.objects.create(owner=self.ann, kind="name", value="Never Mentioned Ltd", criticality="CRITICAL")
+        WatchItem.objects.create(owner=self.bob, kind="ip", value="185.12.44.10", criticality="CRITICAL")
+
+        job = make_job("mock")
+        job.owner = self.ann
+        job.save()
+        services.run_job(job.job_id)
+
+        self.as_user("ann")
+        detail = self.client.get(f"/crawl/status/{job.job_id}").json()
+        hits = detail["watch_hits"]
+
+        self.assertEqual([(h["value"], h["kind"]) for h in hits], [("credit-reporting.com", "domain")])
+        self.assertGreaterEqual(detail["enterprise_exposure"]["factors"]["asset_value"]["level"], 5)
+
+        plain = make_job("mock")
+        services.run_job(plain.job_id)
+        self.assertEqual(
+            CrawlJob.objects.get(pk=plain.job_id).summary.report_data["watch_hits"], []
+        )

@@ -13,9 +13,12 @@ control (SRS NFR Security):
     CDKCIAE_REQUIRE_LOGIN "1" to require a signed-in user (create one with
                          `manage.py createsuperuser`)
     CDKCIAE_DB           path of the SQLite file (default backend/db.sqlite3)
+    CDKCIAE_PG_NAME      set this to use PostgreSQL instead of SQLite; also
+                         CDKCIAE_PG_USER, CDKCIAE_PG_PASSWORD, CDKCIAE_PG_HOST
+                         (default localhost) and CDKCIAE_PG_PORT (default 5432)
 
-SQLite is used for development. For a larger deployment change DATABASES
-to PostgreSQL; the models use only portable fields and indexes.
+SQLite is used for development. PostgreSQL needs `pip install "psycopg[binary]"`;
+the models use only portable fields and indexes.
 """
 
 import os
@@ -89,6 +92,18 @@ DATABASES = {
         "OPTIONS": {"timeout": 30},
     }
 }
+
+if os.environ.get("CDKCIAE_PG_NAME"):
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.environ["CDKCIAE_PG_NAME"],
+            "USER": os.environ.get("CDKCIAE_PG_USER", ""),
+            "PASSWORD": os.environ.get("CDKCIAE_PG_PASSWORD", ""),
+            "HOST": os.environ.get("CDKCIAE_PG_HOST", "localhost"),
+            "PORT": os.environ.get("CDKCIAE_PG_PORT", "5432"),
+        }
+    }
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

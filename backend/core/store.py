@@ -21,6 +21,7 @@ from core.models import (
     NvdRecord,
     StoredReport,
     StoreCache,
+    WatchItem,
     TrainedModel,
 )
 
@@ -164,6 +165,23 @@ class DatabaseStore:
             {"name": s.name, "url": s.url, "category": s.category,
              **({"search": s.search} if s.search else {})}
             for s in CrawlSource.objects.filter(kind=kind, enabled=True)
+        ]
+
+    def watchlist(self):
+        """The watched items of whoever started the current job."""
+
+        job = self.current_job
+
+        if job is None:
+            return []
+
+        # owner_id None means a job started without signing in, whose
+        # watchlist is the one kept without signing in
+        return [
+            {"kind": kind, "value": value, "criticality": criticality}
+            for kind, value, criticality in
+            WatchItem.objects.filter(owner_id=job.owner_id)
+            .order_by("id").values_list("kind", "value", "criticality")
         ]
 
     def mock_page(self, url):

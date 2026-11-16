@@ -22,6 +22,8 @@ urlpatterns = [
     path("annotation/entities/label", views.entity_label),
     path("annotation/entities/score", views.entity_score),
     path("reports/export", views.reports_export),
+    path("watchlist", views.watchlist),
+    path("watchlist/delete", views.watchlist_delete),
     path("tor/status", views.tor_status),
     path("auth/me", auth.me),
     path("auth/login", auth.login_view),

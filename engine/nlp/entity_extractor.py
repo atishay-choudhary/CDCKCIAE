@@ -10,6 +10,8 @@ Extracts:
 
 import re
 
+from engine.nlp.entity_filters import valid_domain
+
 
 # ============================================================
 # PATTERNS
@@ -85,16 +87,18 @@ def extract_entities(text):
         )
     )
 
+    # only real-looking domains: org.minidns.record or dump.zip are not
     domains = list(
 
-        set(
-
-            re.findall(
+        {
+            d.lower(): d
+            for d in re.findall(
                 DOMAIN_PATTERN,
                 text,
                 re.IGNORECASE
             )
-        )
+            if valid_domain(d)
+        }.values()
     )
 
     return {

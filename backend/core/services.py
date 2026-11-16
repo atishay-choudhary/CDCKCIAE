@@ -58,64 +58,72 @@ def start_job(mode, keywords, allow_fallback=True, owner=None):
         job=job, keywords=keywords, allow_fallback=allow_fallback
     )
 
-    threading.Thread(target=run_job, args=(job.job_id,), daemon=True).start()
+    threading.Thread(target=_run_in_thread, args=(job.job_id,), daemon=True).start()
 
     return job
 
 
-def run_job(job_id):
+def _run_in_thread(job_id):
 
+    # a worker thread owns its own database connection; closing it here
+    # (not inside run_job) keeps run_job safe to call on the caller's
+    # connection, which PostgreSQL would otherwise drop
     close_old_connections()
 
     try:
 
-        with _RUN_LOCK:
-
-            job = CrawlJob.objects.get(pk=job_id)
-
-            summary = job.summary
-
-            job.status = "running"
-
-            job.save(update_fields=["status"])
-
-            datastore.get().current_job = job
-
-            try:
-
-                output, summary.source_used, summary.outcome, \
-                    summary.message = _collect(job, summary)
-
-                summary.source_report = _source_report(job)
-
-                if output is not None:
-
-                    with transaction.atomic():
-                        _persist(job, summary, output)
-
-                job.status = "completed"
-
-            except Exception as e:
-
-                job.status = "failed"
-
-                summary.outcome = "failed"
-
-                summary.message = f"{type(e).__name__}: {e}"
-
-                summary.source_report = _source_report(job)
-
-            datastore.get().current_job = None
-
-            job.completed_at = timezone.now()
-
-            job.save()
-
-            summary.save()
+        run_job(job_id)
 
     finally:
 
         close_old_connections()
+
+
+def run_job(job_id):
+
+    with _RUN_LOCK:
+
+        job = CrawlJob.objects.get(pk=job_id)
+
+        summary = job.summary
+
+        job.status = "running"
+
+        job.save(update_fields=["status"])
+
+        datastore.get().current_job = job
+
+        try:
+
+            output, summary.source_used, summary.outcome, \
+                summary.message = _collect(job, summary)
+
+            summary.source_report = _source_report(job)
+
+            if output is not None:
+
+                with transaction.atomic():
+                    _persist(job, summary, output)
+
+            job.status = "completed"
+
+        except Exception as e:
+
+            job.status = "failed"
+
+            summary.outcome = "failed"
+
+            summary.message = f"{type(e).__name__}: {e}"
+
+            summary.source_report = _source_report(job)
+
+        datastore.get().current_job = None
+
+        job.completed_at = timezone.now()
+
+        job.save()
+
+        summary.save()
 
 
 # ============================================================
@@ -498,6 +506,7 @@ def _persist(job, summary, output):
         "business_risk": output["business_risk"],
         "asset_summary": output.get("asset_summary", []),
         "enterprise_exposure": output.get("enterprise_exposure", {}),
+        "watch_hits": output.get("watch_hits", []),
     })
 
 

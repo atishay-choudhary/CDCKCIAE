@@ -85,12 +85,15 @@ def map_assets(
 
     results,
 
-    enriched_iocs=None
+    enriched_iocs=None,
+
+    watch_hits=None
 ):
 
     """
     Maps indicators to
-    enterprise assets.
+    enterprise assets. Watchlist hits (engine.intelligence.watchlist)
+    are the user's own assets, rated as the user rated them.
     """
 
     if enriched_iocs is None:
@@ -245,6 +248,23 @@ def map_assets(
             "asset_role": asset_role,
 
             "criticality": criticality
+        })
+
+    for hit in watch_hits or []:
+
+        mapped_assets.append({
+
+            "asset": hit["value"],
+
+            "asset_type": "watch",
+
+            "business_unit": "Watched by you",
+
+            "infrastructure": "Monitored organisation asset",
+
+            "asset_role": "watch-" + hit["kind"],
+
+            "criticality": hit["criticality"]
         })
 
     return mapped_assets

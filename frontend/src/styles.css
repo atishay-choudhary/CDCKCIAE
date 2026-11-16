@@ -3,15 +3,15 @@
    custom properties: "frost" (light, default) and "night" (dark graphite). */
 :root, :root[data-theme="frost"] {
   color-scheme: light;
-  --paper: #e3e5e9; --panel: rgba(31, 35, 40, .07); --wash: rgba(244, 245, 247, .5);
-  --ink: #1f2328; --muted: #5b626b; --rule: #c4c9d1; --rule-strong: #a3abb7;
-  --glass: rgba(240, 241, 244, .5); --glass-edge: rgba(250, 250, 252, .6); --bar: rgba(232, 234, 238, .72);
-  --blue: #5b86e0; --blue-deep: #3e68c8; --link: #2f5bc0; --link-ink: #0f1d3d; --btn-ink: #12285c;
-  --mag: #c2278a; --shadow: rgba(31, 35, 40, .38); --dots: rgba(31, 35, 40, .16); --hatch: rgba(31, 35, 40, .07);
+  --paper: #e7e2d8; --panel: rgba(60, 48, 30, .07); --wash: rgba(250, 246, 238, .5);
+  --ink: #2b2720; --muted: #6b6457; --rule: #cfc8ba; --rule-strong: #b3ab9b;
+  --glass: rgba(248, 244, 236, .5); --glass-edge: rgba(255, 252, 246, .55); --bar: rgba(234, 229, 218, .78);
+  --blue: #5f82c4; --blue-deep: #405fa6; --link: #35559f; --link-ink: #0f1d3d; --btn-ink: #1d2f5c;
+  --mag: #b8287f; --shadow: rgba(60, 48, 30, .38); --dots: rgba(60, 48, 30, .16); --hatch: rgba(60, 48, 30, .07);
   --low: #2e8b6e; --medium: #a8741a; --high: #c75a2b; --critical: #b8283a;
-  --ground: radial-gradient(900px 520px at 88% -4%, rgba(91, 134, 224, .22), transparent 62%),
-            radial-gradient(760px 520px at -6% 34%, rgba(91, 134, 224, .12), transparent 62%),
-            linear-gradient(180deg, #e6e8ec, #d9dce2);
+  --ground: radial-gradient(900px 520px at 88% -4%, rgba(95, 130, 196, .16), transparent 62%),
+            radial-gradient(800px 560px at -6% 38%, rgba(214, 170, 120, .16), transparent 62%),
+            linear-gradient(180deg, #e9e4da, #ddd6c9);
 }
 :root[data-theme="night"] {
   color-scheme: dark;
@@ -138,11 +138,6 @@ button.small { min-height: 38px; padding: 0 16px; font-size: 14px; }
 .trace text { fill: var(--muted); font: 500 15px var(--display); }
 .trace .on text { fill: var(--ink); font-weight: 600; font-size: 16px; }
 .trace figcaption { margin-top: 4px; }
-@media (prefers-reduced-motion: no-preference) {
-  .trace .run { stroke-dashoffset: 2400; animation: draw 2.6s cubic-bezier(.3, .6, .2, 1) .3s forwards; }
-  .trace .node { opacity: 0; animation: lit .4s ease-out forwards; animation-delay: calc(.3s + var(--n) * .34s); }
-  @keyframes draw { to { stroke-dashoffset: 0; } } @keyframes lit { to { opacity: 1; } }
-}
 
 /* ---- collect */
 .runbar { margin-top: 44px; display: grid; gap: 22px; }
@@ -263,3 +258,11 @@ pre { white-space: pre-wrap; word-break: break-word; background: var(--wash); bo
     100% { transform: translate3d(4%, -1%, 0) scale(1.02, .96); filter: blur(34px) hue-rotate(28deg); }
   }
 }
+
+/* ---- watchlist */
+.watchlist { margin-top: 72px; }
+.watchlist > p { margin-top: 8px; }
+.watchform { margin: 24px 0; display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; }
+.watchform .error { flex-basis: 100%; }
+.mono { font-family: var(--mono); font-size: 13px; word-break: break-all; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

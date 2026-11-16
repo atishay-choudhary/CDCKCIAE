@@ -26,7 +26,9 @@ from core.models import (
     GraphEdge,
     GraphNode,
     PredictedPath,
+    WatchItem,
 )
+from engine.intelligence import watchlist as watchlist_rules
 
 MODES = ("mock", "live")
 
@@ -178,6 +180,114 @@ def crawl_jobs(request):
     })
 
 
+WATCH_LIMIT = 50
+
+
+def _watch_owner(request):
+    """Watchlists are per user; without sign-in there is one shared list."""
+
+    return request.user if request.user.is_authenticated else None
+
+
+def _watch_json(item):
+
+    return {
+        "id": item.pk, "kind": item.kind, "value": item.value,
+        "criticality": item.criticality,
+    }
+
+
+def _json_body(request):
+    """(body, None) or (None, error response) for a JSON POST."""
+
+    if request.content_type != "application/json":
+        return None, JsonResponse(
+            {"error": "Content-Type must be application/json"}, status=415
+        )
+
+    try:
+        body = json.loads(request.body or b"{}")
+
+    except ValueError:
+        return None, JsonResponse({"error": "invalid JSON"}, status=400)
+
+    if not isinstance(body, dict):
+        return None, JsonResponse({"error": "body must be an object"}, status=400)
+
+    return body, None
+
+
+@api(["GET", "POST"])
+def watchlist(request):
+    """List (GET) or add to (POST) the caller's watched items."""
+
+    owner = _watch_owner(request)
+
+    items = WatchItem.objects.filter(owner=owner)
+
+    if request.method == "GET":
+        return JsonResponse({
+            "items": [_watch_json(i) for i in items],
+            "limit": WATCH_LIMIT,
+            "kinds": list(watchlist_rules.KINDS),
+            "criticalities": list(watchlist_rules.CRITICALITIES),
+        })
+
+    body, error = _json_body(request)
+
+    if error:
+        return error
+
+    criticality = str(body.get("criticality", "HIGH")).upper()
+
+    if criticality not in watchlist_rules.CRITICALITIES:
+        return JsonResponse(
+            {"error": "importance must be one of: "
+                      + ", ".join(watchlist_rules.CRITICALITIES)}, status=400
+        )
+
+    try:
+        kind = str(body.get("kind", ""))
+        value = watchlist_rules.clean(kind, body.get("value", ""))
+
+    except ValueError as e:
+        return JsonResponse({"error": str(e)}, status=400)
+
+    if items.count() >= WATCH_LIMIT:
+        return JsonResponse(
+            {"error": f"at most {WATCH_LIMIT} watched items"}, status=400
+        )
+
+    item, created = WatchItem.objects.get_or_create(
+        owner=owner, kind=kind, value=value,
+        defaults={"criticality": criticality},
+    )
+
+    if not created and item.criticality != criticality:
+        item.criticality = criticality
+        item.save(update_fields=["criticality"])
+
+    return JsonResponse(_watch_json(item), status=201 if created else 200)
+
+
+@api(["POST"])
+def watchlist_delete(request):
+
+    body, error = _json_body(request)
+
+    if error:
+        return error
+
+    deleted, _ = WatchItem.objects.filter(
+        owner=_watch_owner(request), pk=body.get("id")
+    ).delete()
+
+    if not deleted:
+        return JsonResponse({"error": "no such watched item"}, status=404)
+
+    return JsonResponse({"deleted": True})
+
+
 @api(["GET"])
 def crawl_status(request, job_id):
 
@@ -189,6 +299,7 @@ def crawl_status(request, job_id):
         **_job_summary(job),
         "business_risk": summary.business_risk,
         "enterprise_exposure": (summary.report_data or {}).get("enterprise_exposure", {}),
+        "watch_hits": (summary.report_data or {}).get("watch_hits", []),
         "stats": summary.stats,
         "source_report": summary.source_report,
         "job_chain": summary.cyber_kill_chain.get("stages", []),

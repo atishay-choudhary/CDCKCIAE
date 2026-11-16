@@ -1,5 +1,4 @@
-// Who built the project and what it was measured against. Edit this file
-// to change the Home page; entries left null are not shown.
+// Credits for developers
 
 export const CREDITS = {
   members: [{ name: "Atishay Choudhary", role: "Design and development" },{ name: "Janvi Kushwaha", role: "Design and development" }],

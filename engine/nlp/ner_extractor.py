@@ -24,6 +24,7 @@ Setup:
 """
 
 from engine import datastore
+from engine.nlp.entity_filters import keep_named_entity
 
 
 MODEL = "en_core_web_sm"
@@ -214,7 +215,12 @@ def extract_named_entities(text):
 
         kind = LABEL_TO_TYPE.get(ent.label_)
 
-        if kind:
-            found.setdefault(kind, set()).add(ent.text.strip())
+        if not kind:
+            continue
+
+        # ATT&CK-ruler hits are exact names and stay; spaCy's statistical
+        # guesses are dropped when they are addresses or threat vocabulary
+        if ent.label_ in ("THREAT_ACTOR", "MALWARE_TOOL") or keep_named_entity(ent.text):
+            found.setdefault(kind, set()).add(" ".join(ent.text.split()))
 
     return {kind: sorted(values) for kind, values in sorted(found.items())}
